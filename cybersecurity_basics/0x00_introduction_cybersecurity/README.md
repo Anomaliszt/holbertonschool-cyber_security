@@ -62,5 +62,5 @@ The following practical exercises were completed:
 
 
 
-*   **Author:** [Xavier SANCHEZ]
-*   **LinkedIn:** [https://www.linkedin.com/in/xavier-sanchez-]
+*   **Author:** Xavier SANCHEZ
+*   **LinkedIn:** https://www.linkedin.com/in/xavier-sanchez-
