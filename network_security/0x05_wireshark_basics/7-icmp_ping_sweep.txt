@@ -1,0 +1,1 @@
+icmp.type == 8 or icmp.type == 0
