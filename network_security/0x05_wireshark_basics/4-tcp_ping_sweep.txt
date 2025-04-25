@@ -1,0 +1,1 @@
+(tcp.flags.syn == 1 && tcp.flags.ack == 1) || (tcp.flags.syn == 1 && tcp.flags.ack == 0)
