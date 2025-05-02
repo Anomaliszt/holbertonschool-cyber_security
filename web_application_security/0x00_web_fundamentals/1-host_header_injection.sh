@@ -1,2 +1,2 @@
 #!/bin/bash
-curl -X POST -H "$1" -d "$3" "$2"
+curl -X POST "$2" -H "Content-Type: application/x-www-form-urlencoded" -H "Host: $1" -d "$3"
