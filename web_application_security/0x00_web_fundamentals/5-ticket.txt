@@ -1,12 +1,12 @@
 GET /ticket?id=1 HTTP/1.1
+Host: 10.42.230.129
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8
 Accept-Encoding: gzip, deflate
 Accept-Language: en-US,en;q=0.9
 Cache-Control: max-age=0
 Connection: keep-alive
-Cookie: session=.eJxFyksKgCAURuG9_GMJmzoqWkIrULyR4AuvUhDtPaGBw_NxHqw2uMhQh_ZMAlvjmgKVIXvLOZXaoZbWm4J2Hgr8-3KRkbeU02lqhICzULNAYypRBxoj3g8vsSW4.aBDiyQ.jl6Tlr0vwb23f328J_MRr2Jp398
-Host: web0x00.hbtn
-Referer: http://web0x00.hbtn/support
+Cookie: session=.eJxFyksKgCAURuG9_GMJmzoqWkIrULyR4AuvUhDtPaGBw_NxHqw2uMhQh_ZMAlvjmgKVIXvLOZXaoZbWm4J2Hgr8-3KRkbeU02lqhICzULNAYypRBxoj3g8vsSW4.aBZlpA.RZaFE5KJs79KF3h8gtKD1dlib8o
+Referer: http://10.42.230.129/support
 Sec-GPC: 1
 Upgrade-Insecure-Requests: 1
 User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
