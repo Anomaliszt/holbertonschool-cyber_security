@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 
 """
-This script reads and writes to the heap of a process
+Read and write to the heap memory
 """
 import sys
 
 def find_and_replace_string(pid, search_string, replace_string):
-    """Finds a string in the heap of a process and replaces it."""
+    """ This function finds a string in the heap of a process and replaces it"""
     try:
         with open(f"/proc/{pid}/maps", "r") as maps_file:
             for line in maps_file:
