@@ -5,8 +5,9 @@ Read and write to the heap memory
 """
 import sys
 
+
 def find_and_replace_string(pid, search_string, replace_string):
-    """ This function finds a string in the heap of a process and replaces it"""
+    """This function finds a string in the heap of a process and replaces it"""
     try:
         with open(f"/proc/{pid}/maps", "r") as maps_file:
             for line in maps_file:
@@ -15,16 +16,19 @@ def find_and_replace_string(pid, search_string, replace_string):
                     heap_start = int(heap_range.split('-')[0], 16)
                     heap_end = int(heap_range.split('-')[1], 16)
                     break
+            else:
+                sys.exit(1)
 
         with open(f"/proc/{pid}/mem", "r+b") as mem_file:
             mem_file.seek(heap_start)
             data = mem_file.read(heap_end - heap_start)
             if search_string.encode() in data:
-                new_data = data.replace(search_string.encode(), replace_string.encode())
+                new_data = data.replace(search_string.encode(),
+                                        replace_string.encode())
                 mem_file.seek(heap_start)
                 mem_file.write(new_data)
 
-    except:
+    except Exception:
         sys.exit(1)
 
 
