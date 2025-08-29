@@ -1,76 +1,61 @@
 #!/usr/bin/env ruby
 
+require 'fileutils'
 require 'optparse'
 
-def load_tasks
-  if File.exist?('tasks.txt')
-    File.readlines('tasks.txt').map(&:chomp)
-  else
-    []
-  end
-end
+TASKS_FILE = "tasks.txt"
 
-def save_tasks(tasks)
-  File.open('tasks.txt', 'w') do |file|
-    tasks.each { |task| file.puts(task) }
-  end
-end
-
-def add_task(task)
-  tasks = load_tasks
-  tasks << task
-  save_tasks(tasks)
-  puts "Task '#{task}' added."
-end
-
-def list_tasks
-  tasks = load_tasks
-  if tasks.empty?
-    puts "No tasks available."
-  else
-    tasks.each_with_index { |task, index| puts "#{index + 1}. #{task}" }
-  end
-end
-
-def remove_task(index)
-  tasks = load_tasks
-  if index.between?(1, tasks.length)
-    removed_task = tasks.delete_at(index - 1)
-    save_tasks(tasks)
-    puts "Task '#{removed_task}' removed."
-  else
-    puts "Invalid task index."
-  end
-end
+FileUtils.touch(TASKS_FILE) unless File.exist?(TASKS_FILE)
 
 options = {}
-OptionParser.new do |opts|
-  opts.banner = "Usage: cli.rb [options]"
 
-  opts.on("-a", "--add TASK", "Add a new task") do |task|
-    options[:add] = task
-  end
+OptionParser.new { |option|
+    option.banner = "Usage: cli.rb [options]"
 
-  opts.on("-l", "--list", "List all tasks") do
-    options[:list] = true
-  end
+    option.on("-aTASK", "--add TASK", "Add a new task") { |task|
+        options[:add] = task
+    }
 
-  opts.on("-r", "--remove INDEX", "Remove a task by index") do |index|
-    options[:remove] = index.to_i
-  end
+    option.on("-l", "--list", "List all tasks") {
+        options[:list] = true
+    }
 
-  opts.on("-h", "--help", "Show help") do
-    puts opts
-    exit
-  end
-end.parse!
+    option.on("-rINDEX", "--remove INDEX", Integer, "Remove a task by index") { |index|
+        options[:remove] = index
+    }
+
+    option.on("-h", "--help", "Show help") {
+        puts option
+        exit
+    }
+}.parse!
 
 if options[:add]
-  add_task(options[:add])
+    File.open(TASKS_FILE, 'a') { |file|
+        file.puts(options[:add])
+    }
+    puts "Task '#{options[:add]}' added."
+
 elsif options[:list]
-  list_tasks
+    tasks = File.readlines(TASKS_FILE, chomp: true)
+    if tasks.empty?
+        puts "No tasks found."
+    else
+        tasks.each_with_index { |task, index|
+            puts "#{index + 1}. #{task}"
+    }
+    end
+
 elsif options[:remove]
-  remove_task(options[:remove])
-else
-  puts "Usage: cli.rb [options]"
+    index = options[:remove].to_i
+    tasks = File.readlines(TASKS_FILE, chomp: true)
+
+    if index.between?(1, tasks.size)
+        removed = tasks.delete_at(index - 1)
+        File.write(TASKS_FILE, tasks.join("\n") + "\n")
+
+        puts "Task '#{removed}' removed."
+    else
+        puts "Invalid index."
+    end
 end
