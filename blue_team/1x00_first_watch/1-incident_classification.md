@@ -50,5 +50,7 @@ The six documented security incidents are classified below by their impact on th
 ### Incident F: IT Intern's Personal Torrenting Laptop on Corporate WiFi
 * **Primary Pillar Impacted:** **Confidentiality**
 * **Justification:** The primary impact was to confidentiality because an unmanaged, unauthenticated personal device running peer-to-peer software was improperly allowed onto the internal corporate network segment for 3 weeks, exposing sensitive HR file shares to unauthorized access.
-* **Secondary Pillar Impacted:** None
-    * *Connection:* While the risk of lateral movement and data exfiltration was exceptionally high, the incident log only records network exposure and unauthorized access to the segment rather than actual data deletion, alteration, or service denial.
+* **Secondary Pillar Impacted:** Availability & Integrity
+    Connection (Availability): Active torrent clients generate high volumes of concurrent connections and heavy bandwidth consumption, risking severe network degradation or denial of service for critical hospital systems sharing that same flat broadcast domain.
+
+    Connection (Integrity): P2P software serves as a prime delivery mechanism for malware and malicious payloads. Given that the device sat on the same network segment as the HR file share for three weeks, it created an unmitigated risk for lateral malware propagation capable of modifying, deleting, or encrypting corporate data.
