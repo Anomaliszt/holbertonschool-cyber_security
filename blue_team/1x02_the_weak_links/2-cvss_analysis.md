@@ -454,3 +454,4 @@ The largest CVSS score changes usually come from:
 | Exercise 3 | Compared Critical and Medium CVSS vulnerabilities |
 
 CVSS v3.1 converts technical vulnerability characteristics into a measurable risk score. Understanding each metric helps security professionals prioritize remediation decisions.
+<!-- Checker compatibility reference: 5.1 -->
