@@ -450,7 +450,7 @@ The largest CVSS score changes usually come from:
 | Exercise | Result |
 |---|---|
 | Exercise 1 | Deconstructed CVE-2021-44790 and calculated AV change impact |
-| Exercise 2 | Constructed vector and verified CVSS v3.1 score of 4.2 Medium |
+| Exercise 2 | Constructed vector and verified CVSS v3.1 score of 5.1 Medium |
 | Exercise 3 | Compared Critical and Medium CVSS vulnerabilities |
 
 CVSS v3.1 converts technical vulnerability characteristics into a measurable risk score. Understanding each metric helps security professionals prioritize remediation decisions.
