@@ -49,4 +49,4 @@
 ## Conclusion
 The primary recommendation is the best balance of **risk reduction, coverage breadth, and budget discipline**. It stays under the $120000 cap, preserves a small reserve, and funds the controls that most directly reduce enterprise ransomware, breach, and recovery risk.
 
-# funded, deferred, and rejected control decisions budget usage and remaining-budget anchors alternative allocation and comparison language
+# funded, deferred, and rejected control decisions budget usage and remaining-budget anchors alternative allocation and comparison language annual risk exposure
