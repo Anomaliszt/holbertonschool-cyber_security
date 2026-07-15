@@ -1,0 +1,7 @@
+After four weeks of assessment, MedDefense is no longer guessing about its security posture: we now know the hospital's biggest problem is architectural. A flat network, incomplete MFA, weak monitoring, and non-isolated backups mean a single phishing email, VPN compromise, or exposed server could escalate into a hospital-wide incident.
+
+If we do nothing, the most credible business scenario is not a nuisance malware event—it is a full-network breach. Our analysis estimates **$2.10M in annualized loss exposure** from VPN-led compromise alone, plus **$2.85M** tied to a major EHR data breach. In plain terms: the risk is patient-care disruption, HIPAA notification, recovery cost, and loss of public trust.
+
+We recommend a **year-1 security package of $113,000** within the approved $120,000 budget, leaving a $7,000 reserve. The plan funds six controls: **network segmentation, MFA for VPN/admin access, Wazuh SIEM logging, immutable offsite backups, EDR coverage for servers/endpoints, and a dedicated Westside firewall**. The top three controls—segmentation, MFA, and resilient recovery—directly break the kill chains most likely to be used by ransomware groups targeting hospitals.
+
+The return is strong: this package is expected to reduce about **$3.19M in annualized loss exposure**. That means **every $1 invested avoids roughly $28 of expected loss**. This is not a technology spend; it is a patient-safety, continuity, and liability-reduction program.
