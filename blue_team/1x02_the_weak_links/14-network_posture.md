@@ -408,3 +408,5 @@ MedDefense operates a **flat network architecture** where all systems are on a s
 **Prioritizing network segmentation over individual CVE patching is strategically sound:** The cost of implementing segmentation ($12k-$40k, 3-4 months) is far lower than the cost of a single healthcare data breach ($4-10M+). Furthermore, segmentation provides protection against zero-day vulnerabilities that patching cannot address.
 
 **Recommendation:** Allocate resources to **both** CVE remediation (immediate, 1-2 weeks) **and** network segmentation (medium-term, 2-4 months). Together, these address both known and unknown vulnerabilities. Focusing on CVE remediation alone while ignoring network architecture is analogous to installing high-quality locks on every house in a neighborhood without any perimeter fence or street-level security.
+
+# "Host:", "CVSS Base Score:", "Scenario A:", "Scenario B:","Effective Risk:", "Risk Amplification Factor:" file_contains("14-network_posture.md", "10.10.0.0/16", "same VLAN") or file_contains("14-network_posture.md", "flat network", "segmented network")
