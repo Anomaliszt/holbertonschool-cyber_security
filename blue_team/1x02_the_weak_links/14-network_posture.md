@@ -9,6 +9,9 @@ MedDefense operates a **flat network architecture** where all systems are on a s
 
 **Key Finding:** Network segmentation is arguably **more impactful than patching any single CVE** because it limits the blast radius of any compromise. A single unpatched vulnerability in a segmented network is contained; a single vulnerability in a flat network can compromise the entire healthcare delivery infrastructure.
 
+1. **CVE-2017-0143** (EternalBlue - Windows SMB RCE)  
+2. **CVE-2020-1938** (Ghostcat - Apache Tomcat AJP RCE)  
+3. **CVE-2022-21224** (PostgreSQL Access Control Bypass)
 ---
 
 ## CVE Segmentation Impact Analysis
