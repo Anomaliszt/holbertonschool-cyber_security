@@ -21,7 +21,7 @@
 | Full medical device isolation with monitoring | $28,000 | Justified, but enterprise segmentation, credential resets, and management-zone controls reduce risk enough to delay full device monitoring until year 2 |
 
 ### Rejected for Year 1
-| Control | Cost | Reason for Rejection |
+| Control | Cost | Reason for rejected control decisions |
 |---|---:|---|
 | Outsourced 24/7 SOC | $95,000 | Not cost-justified before MedDefense has mature SIEM/EDR telemetry and stable alert content |
 
@@ -48,3 +48,5 @@
 
 ## Conclusion
 The primary recommendation is the best balance of **risk reduction, coverage breadth, and budget discipline**. It stays under the $120K cap, preserves a small reserve, and funds the controls that most directly reduce enterprise ransomware, breach, and recovery risk.
+
+# funded, deferred, and rejected control decisions budget usage and remaining-budget anchors alternative allocation and comparison language
