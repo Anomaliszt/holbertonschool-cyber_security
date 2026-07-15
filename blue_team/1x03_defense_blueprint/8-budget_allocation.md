@@ -16,7 +16,7 @@
 **Budget remaining:** **$7,000** (held as contingency for implementation variance, training, or storage growth)
 
 ### Deferred to Next Fiscal Year
-| Control | Cost | Reason for Deferral |
+| Control | Cost | Reason for Deferral (deferred) |
 |---|---:|---|
 | Full medical device isolation with monitoring | $28,000 | Justified, but enterprise segmentation, credential resets, and management-zone controls reduce risk enough to delay full device monitoring until year 2 |
 
