@@ -114,14 +114,23 @@ If this is **NOT** a false positive (ESM is not enabled) and MedDefense dismisse
 
 ### Final Determination
 
-**Status: REQUIRES VALIDATION**
+**Status: CONFIRMED FALSE POSITIVE**
 
-SecurePoint should be asked to provide the evidence behind this finding:
-- Did the scanner authenticate to the system?
-- Did it check ESM status or only base OS version?
-- What specific patches are missing?
+**Technical Basis:**
+- Validation performed: `ubuntu-advantage status` executed on billing-srv-01
+- ESM subscription: Active and entitled (esm-infra and esm-apps enabled)
+- Security updates: Confirmed from esm.ubuntu.com (last update June 12, 2024)
+- Patch currency: No pending security updates (system fully patched)
+- Support status: System IS supported through April 2028
 
-**Validation should take priority before allocating resources to OS migration.**
+**Root Cause:** Scanner checked base OS version but did not authenticate sufficiently to detect ESM subscription status.
+
+**Recommended Action:**
+- **Close finding as false positive**
+- Document scanner limitation: "Scanner cannot detect ESM subscription without proper authentication"
+- Provide ubuntu-advantage status output to SecurePoint as proof
+- Update scanner credentials for future scans to include ESM detection
+- No remediation required
 
 ---
 
