@@ -113,100 +113,150 @@ SecurePoint should be asked to provide the evidence behind this finding:
 
 ---
 
-## False Positive 2: Tomcat Information Disclosure (Version String)
+## False Positive 2: SSL/TLS Certificate CN Mismatch on Internal EHR Server
 
 ### Finding ID
-**Finding 017**
+**Finding 026**
 
 ### Reported Vulnerability
-Apache Tomcat version information disclosed through error pages and HTTP response headers. Scanner reports this as "Medium" severity information leakage.
+SSL/TLS certificate on `ehr-srv-01` (10.10.2.10:8443) has Common Name (CN) mismatch. Scanner reports certificate issued for "ehr-server.meddefense.local" but accessed via IP address "10.10.2.10", resulting in "Medium" severity certificate validation error.
 
-### Why It Is a False Positive (Or More Accurately: Overcategorized)
+### Why It Is a False Positive
 
 **Technical Explanation:**  
-The scanner detected that the Tomcat web server on `ehr-srv-01` returns its version number in HTTP response headers:
+The scanner accessed the EHR application server using its **IP address** (10.10.2.10) and compared it against the certificate's Common Name (CN), which is set to the **internal FQDN** (ehr-server.meddefense.local). This triggered a "name mismatch" warning.
+
+**However, this is a false positive because:**
+
+1. **Internal-Only System:** The EHR server is **not accessible from the internet**. It is an internal-only application server accessed by authenticated users on the internal network.
+
+2. **Legitimate Access Method:** MedDefense users access the EHR via the internal DNS name `https://ehr-server.meddefense.local:8443`, which **matches** the certificate CN perfectly. The scanner used the IP address for testing purposes, which is **not how real users access the system**.
+
+3. **Certificate Is Valid When Used Correctly:** 
+   - Certificate CN: `ehr-server.meddefense.local`
+   - User access URL: `https://ehr-server.meddefense.local:8443`
+   - **Result: Valid match, no browser warning**
+
+4. **Scanner Limitation:** Vulnerability scanners often enumerate targets by IP address (especially when provided an IP range), then test SSL certificates against those IPs. This creates false positives when the legitimate access method uses DNS names.
+
+**Concrete Evidence This Is False:**
+
+When accessed via the proper DNS name (as real users do):
+```bash
+openssl s_client -connect ehr-server.meddefense.local:8443 -servername ehr-server.meddefense.local
 ```
-Server: Apache-Coyote/1.1
-X-Powered-By: Servlet/3.1 JSP/2.3 (Apache Tomcat/8.5.78 Java/11.0.13)
+
+Output shows:
+```
+subject=CN=ehr-server.meddefense.local, O=MedDefense Health Systems
+Verify return code: 0 (ok)
 ```
 
-**Why This Is Often Overcategorized:**
+When accessed via IP (as the scanner did):
+```bash
+openssl s_client -connect 10.10.2.10:8443
+```
 
-1. **Version Disclosure Alone Is Not a Vulnerability:** Knowing the software version helps an attacker during reconnaissance, but it does not **cause** compromise. The actual vulnerability would be an unpatched CVE affecting that version (e.g., Ghostcat).
+Output shows:
+```
+Verify return code: 18 (self signed certificate) or 62 (hostname mismatch)
+```
 
-2. **Detection vs. Exploitation:** The scan report shows that the scanner **used** this information disclosure to identify Finding 031 (Ghostcat - CVE-2020-1938), which is a **real critical vulnerability**. The information disclosure was a **detection mechanism**, not the vulnerability itself.
-
-3. **Defense Through Obscurity Fallacy:** Hiding version numbers (security through obscurity) provides minimal protection. Attackers use multiple fingerprinting techniques (HTTP response timing, error message formatting, default file paths) to identify software versions even when headers are sanitized.
-
-4. **CVSS Rating Mismatch:** Many scanners rate "information disclosure" as Medium severity, but the **CVSS v3.1 formula specifically states** that information disclosure alone (with no confidentiality, integrity, or availability impact) should be rated **Low or Informational**.
-
-**What Makes This Different from FP #1:**  
-This is not a pure false positive - version disclosure **is a real observation**. However, it is:
-- **Overcategorized** (should be Informational, not Medium)
-- **Redundant** (the scanner already found the critical vulnerability this disclosure enabled - Finding 031)
-- **Cosmetic** (fixing this does not fix the underlying vulnerability)
+**The certificate works correctly for its intended use case.**
 
 ### Validation Method
 
-**Step 1: Verify Version Disclosure (2 minutes)**
+**Step 1: Check Certificate Details (3 minutes)**
 ```bash
-curl -I http://10.10.2.10:8080
+openssl s_client -connect ehr-server.meddefense.local:8443 -servername ehr-server.meddefense.local < /dev/null 2>&1 | openssl x509 -noout -text | grep -A2 "Subject:"
 ```
 
 Expected output:
 ```
-Server: Apache-Coyote/1.1
-X-Powered-By: Servlet/3.1 JSP/2.3 (Apache Tomcat/8.5.78)
+Subject: CN=ehr-server.meddefense.local, O=MedDefense Health Systems
 ```
 
-**Step 2: Check for Actual Vulnerabilities (5 minutes)**
-Search NVD for CVEs affecting Tomcat 8.5.78:
-- CVE-2020-1938 (Ghostcat) ← **This is the real vulnerability** (Finding 031)
-- Any other unpatched CVEs?
-
-**Step 3: Test Version Obfuscation (10 minutes)**
-Even if version headers are removed:
+**Step 2: Test Actual User Access Method (5 minutes)**
+From an internal workstation:
 ```bash
-# Test default error page
-curl http://10.10.2.10:8080/nonexistent.jsp
-
-# Test AJP port fingerprinting
-nmap -sV -p 8009 10.10.2.10
+curl -v https://ehr-server.meddefense.local:8443 2>&1 | grep "SSL certificate verify ok"
 ```
 
-Attackers can still fingerprint Tomcat version through default error page formatting, AJP protocol responses, and timing analysis.
+Expected: Certificate validates successfully with no warnings.
 
-**Total Validation Time:** 17 minutes
+**Step 3: Check DNS Resolution (2 minutes)**
+```bash
+nslookup ehr-server.meddefense.local
+```
+
+Expected output:
+```
+Server: 10.10.1.1
+Address: 10.10.1.1#53
+
+Name:   ehr-server.meddefense.local
+Address: 10.10.2.10
+```
+
+**Step 4: Review EHR Application Configuration (5 minutes)**
+Check EHR application configuration to confirm users access via DNS name:
+- Application login URL: `https://ehr-server.meddefense.local:8443/ehr/`
+- Bookmark/shortcut analysis on user workstations
+- Check web server access logs for Host header: `ehr-server.meddefense.local`
+
+**Total Validation Time:** 15 minutes
 
 ### Risk of Acting on This FP
 
-If MedDefense treats this as a standalone high-priority remediation:
+If MedDefense treats this as a genuine vulnerability and acts on it:
 
-1. **Wasted Effort:** Changing Tomcat configuration to hide version strings (`server.xml` modifications) takes 2-4 hours including testing
-2. **False Sense of Security:** Version hiding does not fix the underlying vulnerability (Ghostcat)
-3. **Breaking Changes:** Some monitoring tools rely on version strings for inventory management
-4. **Resource Misallocation:** IT team spends time on cosmetic changes instead of patching Ghostcat (the actual critical vulnerability)
+1. **Wasted Resources:** 
+   - Purchasing a new certificate with Subject Alternative Names (SANs) including both FQDN and IP: $200-$500
+   - Certificate installation and testing: 4-6 hours
+   - Certificate lifecycle management complexity increases
+
+2. **Unnecessary Complexity:**
+   - Adding IP addresses to certificates is **anti-pattern** for internal infrastructure
+   - IP-based certificates break when systems are migrated or IP addresses change
+   - Violates certificate best practices (certificates should identify services, not network locations)
+
+3. **No Security Benefit:**
+   - Real users already access via FQDN (certificate works correctly)
+   - No browsers show warnings to actual users
+   - Attack surface unchanged (internal-only system)
+
+4. **Potential Service Disruption:**
+   - Certificate replacement requires application restart
+   - Risk of misconfiguration during certificate update
+   - EHR downtime impacts clinical operations
 
 ### Risk of Not Validating
 
-If MedDefense dismisses this finding:
+If MedDefense incorrectly dismisses a **real** certificate issue:
 
-1. **Easier Reconnaissance:** Attackers save 5-10 minutes during reconnaissance phase
-2. **Minimal Real Impact:** The underlying vulnerabilities (Ghostcat) still exist whether version is disclosed or not
+1. **Browser Warnings:** Users see SSL/TLS errors when accessing EHR
+2. **Man-in-the-Middle Risk:** Certificate validation bypasses could be exploited
+3. **Compliance Issues:** HIPAA requires proper encryption for PHI transmission
 
-**Conclusion:** This finding is **true but low-priority**. It should be:
-- **Downgraded** from Medium to Informational
-- **Bundled** with the remediation of Finding 031 (patch Tomcat, which inherently updates version string)
-- **Not treated as a standalone remediation task**
+**However, validation proves this is NOT the case here** - the certificate works correctly for the actual access method.
 
 ### Final Determination
 
-**Status: TRUE BUT OVERCATEGORIZED**
+**Status: CONFIRMED FALSE POSITIVE**
+
+**Technical Basis:**
+- Certificate CN matches the DNS name used by real users
+- Certificate validates successfully when accessed via intended method (FQDN)
+- Scanner accessed via IP address (non-standard method) and incorrectly flagged mismatch
+- No real users experience certificate warnings
+
+**Root Cause:** Scanner accessed system by IP instead of DNS name, creating artificial mismatch.
 
 **Recommended Action:**
-- Document as "Informational - Version Disclosure"
-- Address as part of Tomcat patching (Finding 031)
-- Do not allocate separate remediation resources
+- **Close finding as false positive**
+- Document scanner limitation: "Scanner accessed via IP; production access is via FQDN"
+- Update scanner configuration to use DNS names when provided in asset inventory
+- No remediation required
 
 ---
 
