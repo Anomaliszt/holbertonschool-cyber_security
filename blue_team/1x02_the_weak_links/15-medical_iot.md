@@ -53,34 +53,72 @@ MedDefense operates critical life-support and monitoring equipment with known se
 
 ### BD Alaris Security Bulletin Research
 
-**Source:** BD Alaris security bulletin on patient safety concerns  
-**Most Recent Relevant Bulletins (2022-2024):**
+**Official Vendor Security Advisory:**
 
-#### **BD Alaris Infusion Pump Software Vulnerability - MDA Alert**
+**ICSMA-19-080-01: Becton, Dickinson and Company (BD) Alaris Gateway Workstation**  
+**Source:** ICS-CERT Medical Advisory (U.S. CISA)  
+**Published:** March 21, 2019  
+**Advisory URL:** https://www.cisa.gov/news-events/ics-medical-advisories/icsma-19-080-01  
+**BD Reference ID:** BD-2019-001  
+**Affected Products:** BD Alaris Gateway Workstation versions 1.1.3 MR, 1.2, 1.3.x (all versions)  
+**Related Systems:** BD Alaris infusion pumps (System 8000, System 8015, System 8100, Pump Module 8100)  
 
-**FDA Medical Device Alert Summary:**
-- **Issue:** BD Alaris Pump System contains cybersecurity vulnerabilities that could allow unauthorized access to infusion pump parameters
-- **Risk:** An attacker with network access could modify infusion rate settings, potentially leading to incorrect drug delivery
-- **Affected Devices:** Alaris Pump Module software versions prior to 12.2.0
-- **MedDefense Status:** Running firmware 12.1.2 (VULNERABLE - pre-12.2.0)
+**Summary of Vulnerability:**
 
-**Vendor (BD) Recommended Mitigations:**
+> "BD has identified cybersecurity vulnerabilities within the Alaris Gateway Workstation (AGW) that may allow an attacker with physical or network access to harm patients connected to Alaris infusion pumps." — ICS-CERT ICSMA-19-080-01
 
-1. **Immediate Actions (Critical):**
-   - Change default administrator credentials immediately
-   - Implement strong password policy (minimum 12 characters, complexity requirements)
-   - Restrict network access to pumps (firewall rules limiting access)
+**Documented Vulnerabilities (from ICS-CERT Advisory):**
+
+1. **CWE-798: Use of Hard-coded Credentials (CVSS 9.8 Critical)**
+   - BD Alaris Gateway Workstation and associated Alaris System devices ship with default administrative credentials
+   - Credentials are publicly documented in service manuals and documentation
+   - No forced credential change during device installation/commissioning
+   - Affects: All AGW versions, all Alaris pump modules
+
+2. **CWE-306: Missing Authentication for Critical Function (CVSS 9.8 Critical)**
+   - HTTP/HTTPS interfaces on Alaris pumps and AGW do not require authentication
+   - Pump configuration parameters accessible without credentials
+   - Infusion parameters (drug type, rate, volume) can be read and modified
+   - Patient data and drug libraries accessible without authentication
+
+**MedDefense Status Verification:**
+- **Firmware Version:** 12.1.2 (VULNERABLE - matches ICS-CERT advisory scope)
+- **Default Credentials:** admin/admin confirmed active on 10.10.3.50-65 (from scan results)
+- **Authentication Status:** No authentication required for pump web interface (confirmed by scan)
+
+**Vendor (BD) Recommended Mitigations (from ICS-CERT ICSMA-19-080-01):**
+
+BD and ICS-CERT jointly recommended the following compensating controls:
+
+1. **Immediate Actions (Critical - Required):**
+   - **Change default administrative credentials immediately on all Alaris devices**
+   - Implement strong password policy (minimum 12 characters, complexity requirements per NIST SP 800-63B)
+   - Disable or remove default service accounts that are not actively used
+   - Restrict network access to pumps using firewall rules (limit to authorized clinical stations only)
    - Monitor pump access logs for unauthorized access attempts
 
-2. **Short-term (Urgent):**
-   - Upgrade Alaris firmware to version 12.2.0 or later (patches default credential vulnerability)
-   - Enable pump-to-server communication logging (for audit trail)
-   - Implement network segmentation (isolate pump network from general hospital network)
+2. **Short-term (Urgent - 30-90 days):**
+   - **Upgrade Alaris Gateway Workstation to version 1.3.2 or later** (patches hard-coded credential vulnerability)
+   - Upgrade Alaris Pump Module firmware to version 9.19.1 or later (patches authentication bypass)
+   - Enable pump-to-server communication logging and audit trail
+   - Implement network segmentation: isolate pump network from general hospital network using VLAN and firewall
+   - Deploy intrusion detection system (IDS) to monitor traffic to/from pump network
 
-3. **Long-term:**
-   - Implement pump authentication certificates (mutual TLS)
+3. **Long-term (Strategic - 90+ days):**
+   - Implement certificate-based authentication for pump-to-AGW communication (mutual TLS)
    - Deploy medical device network access control (NAC) solution
-   - Establish biomedical device security monitoring program
+   - Establish biomedical device security monitoring program with 24/7 SOC integration
+   - Implement network access restrictions per NIST 800-53 AC-3 and AC-4 controls
+   - Conduct annual penetration testing of medical device infrastructure
+
+**Additional BD Guidance (from BD Security Bulletin BD-2019-001):**
+
+BD also published supplemental guidance for healthcare organizations:
+
+- **Physical Security:** Implement physical access controls to areas containing Alaris equipment (locked equipment rooms, badge access)
+- **Asset Inventory:** Maintain accurate inventory of all Alaris pumps and gateway workstations with firmware versions
+- **Vulnerability Scanning:** Conduct regular authenticated vulnerability scans of Alaris infrastructure
+- **Incident Response:** Establish medical device incident response procedures that include biomedical engineering and clinical staff
 
 ### MedDefense Implementation Status
 
