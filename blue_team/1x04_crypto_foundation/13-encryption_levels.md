@@ -346,21 +346,122 @@ gpg --verify-files /backup/exports/clinical_2024-07-21.sql.gpg
 
 ---
 
-### 5. Medical Images on PACS (pacs-srv-01)
+### 5. Configuration Files and Audit Logs (File-Level Primary)
 
-**Recommended Level:** Partition-level encryption (local PACS storage) + File-level or Volume-level encryption (network storage)
+**Recommended Level:** File-level encryption (FSCRYPT) for sensitive configuration + Full-disk for audit logs
 
 **Justification:**
-DICOM files are stored on PACS server. For local storage, use partition-level encryption to separate DICOM files (/data/dicom) from OS (/). For network storage (NAS), use volume-level encryption.
+MedDefense configuration files contain database credentials, API keys, encryption keys, and other secrets. Audit logs contain sensitive patient access records and clinical events. These have different sensitivity levels and retention policies:
+- **Configuration files:** Must be encrypted and access-controlled (developers should not read other teams' API keys)
+- **Audit logs:** Highly sensitive (compliance requirement), but need to be readable by SIEM without decryption per entry
+- **Use file-level for configuration:** Each file (db.conf, api.conf, ldap.conf) has different access level (database team, API team, auth team)
+- **Use full-disk for audit logs:** Fast, transparent logging; encryption protects stolen disks
 
-**Implementation:**
-- Local PACS partition: /data/dicom encrypted with LUKS
-- NAS backup: Volume-level encryption (transparent to PACS application)
-- Network transmission: DICOM TLS (CMS/HIPAA requirement)
+**Example Scenario (File-Level for Configuration):**
+```
+/etc/meddefense/
+├── db.conf.encrypted        (Readable only by database team)
+├── api.conf.encrypted       (Readable only by API team)  
+├── ldap.conf.encrypted      (Readable only by auth team)
+├── dicom.conf.encrypted     (Readable only by PACS team)
+└── encryption.conf.encrypted (Readable only by security team)
+```
+
+**Implementation (FSCRYPT - Modern Linux):**
+```bash
+# Enable encryption on ext4 filesystem for /etc/meddefense
+fscrypt setup
+fscrypt encrypt /etc/meddefense --source=pam_passphrase
+
+# Each configuration file is now encrypted with user's login passphrase
+# Only authorized users can read them:
+cat /etc/meddefense/db.conf  # Decrypted automatically if user has permission + passphrase
+grep "password" /etc/meddefense/db.conf  # File-level encryption is transparent
+
+# Administrator can set per-file permissions:
+setfattr -n fscrypt.context /etc/meddefense/db.conf  # Encrypt with specific user's key
+```
+
+**Benefits (File-Level):**
+- **Granular Access Control:** Each configuration file is encrypted with a different user's key; API team cannot read database credentials
+- **Compliance Audit Trail:** FSCRYPT logs who accessed which encrypted file and when (separate from logs themselves)
+- **No Performance Cost:** FSCRYPT is filesystem-level; encryption is transparent to applications
+- **Selective Protection:** Non-sensitive files (service descriptions, comments) remain unencrypted for fast reading
+- **Secrets Isolation:** If one team's key is compromised, only their configuration files are exposed (not all configuration)
+
+**Trade-off Against Partition-Level:**
+- Partition-level (/etc on LUKS) would encrypt all files equally and be simpler to manage
+- File-level is better when different files have different access needs (developers ≠ DBA ≠ security team)
+- MedDefense has multiple teams needing selective access, making file-level optimal
+
+**Key Management:**
+- FSCRYPT uses pam_passphrase (user's login password) to derive file encryption key
+- Can also use external key manager (Vault) with fscrypt unlock service
+- Per-file key rotation: re-encrypt file with new user's key when person leaves team
 
 ---
 
-### 6. Email Data in O365
+### 6. Medical Images on PACS (pacs-srv-01)
+
+**Recommended Level:** File-level encryption (eCryptfs) for on-server DICOM staging + Volume-level encryption for NAS archival
+
+**Justification:**
+Medical images are stored in PACS with two lifecycle phases:
+1. **On-server staging** (/data/dicom-staging): Recent images used by radiologists, must be accessible with low latency
+2. **NAS archive** (/archive/dicom-old): Historical images accessed rarely, can be encrypted at volume level
+
+For staging, file-level encryption is appropriate:
+- **Different studies have different sensitivity:** Urgent cancer workups vs. routine follow-ups
+- **Granular access:** Different radiologists access different studies (file-level allows per-study keys)
+- **Performance:** eCryptfs provides per-file encryption transparency; radiologists don't notice decryption
+- **Audit trail:** Can log which radiologist accessed which study when (HIPAA requirement)
+
+For archive, volume-level encryption is appropriate:
+- **All images equally sensitive** (historical, no longer in active use)
+- **Performance not critical** (rare access)
+- **Single key simpler** to manage for long-term retention
+
+**Example Scenario (File-Level for Staging):**
+```
+/data/dicom-staging/
+├── 2024-07-21_patient001_MRI_brain.dcm.encrypted    (Encrypted, oncology team access)
+├── 2024-07-21_patient002_CT_chest.dcm.encrypted     (Encrypted, pulmonology team access)
+├── 2024-07-21_patient003_XRay_chest.dcm.encrypted   (Encrypted, emergency team access)
+└── 2024-07-21_index.xml                             (NOT encrypted—metadata only)
+```
+
+**Implementation (eCryptfs for Staging):**
+```bash
+# Mount encrypted staging directory (per-radiologist encryption)
+mount -t ecryptfs /data/dicom-staging /data/dicom-staging-encrypted
+
+# DICOM software writes to /data/dicom-staging-encrypted normally
+# eCryptfs encrypts transparently with per-radiologist passphrase
+
+# When radiologist logs in, eCryptfs mounts with their key
+# They see decrypted studies in PACS automatically
+```
+
+**Implementation (Volume-Level for Archive):**
+```bash
+# NAS: Enable shared folder encryption on archival destination
+# All DICOM files written to /archive/dicom are encrypted with volume key
+# Old images are moved from staging to archive monthly (encrypted transparently)
+```
+
+**Benefits (File + Volume):**
+- **Staging protection:** Per-radiologist file-level access, HIPAA audit trail
+- **Archive protection:** Volume-level simplicity for historical images
+- **Performance:** eCryptfs staging is transparent; no latency impact on active workups
+- **Compliance:** Two-layer protection meets HIPAA PHI encryption requirement
+
+**Key Management:**
+- Staging: Per-radiologist FSCRYPT key derived from login passphrase
+- Archive: Volume key stored in external Vault, rotated annually
+
+---
+
+### 7. Email Data in O365
 
 **Recommended Level:** Microsoft-managed encryption (equivalent to database-level)
 
@@ -375,7 +476,7 @@ However: Record-level encryption (S/MIME) should be used for individual sensitiv
 
 ---
 
-### 7. Employee Laptops
+### 8. Employee Laptops
 
 **Recommended Level:** Full-disk encryption (BitLocker on Windows, FileVault on Mac)
 
@@ -394,7 +495,7 @@ Laptops are portable, frequently travel, and are high-theft targets. Full-disk e
 
 ---
 
-### 8. BD Alaris Pump Firmware/Configuration
+### 9. BD Alaris Pump Firmware/Configuration
 
 **Recommended Level:** Record-level encryption + Firmware signing (at application level)
 
@@ -421,12 +522,25 @@ BD Alaris pumps are constrained devices with limited processing power. Full-disk
 | **Backups** | NAS-01 | Volume (encrypted RAID) | External vault | N/A | Key NOT on NAS (ransomware scenario) |
 | **Financial Data** | MySQL billing-srv-01 | Database + Record (hybrid) | External KMS | Full-disk backup | Most sensitive fields (SSN, CC) encrypted at application level |
 | **Backup Exports** | ehr-db-01 staging | File-level (GPG) | Team-specific GPG keys | Partition-level for archive | Per-file access control; audit trail per export |
-| **Medical Images** | PACS pacs-srv-01 | File-level + Volume | TLS for network | Volume-level on storage | DICOM TLS mandatory for HIPAA |
+| **Configuration Files** | /etc/meddefense | File-level (FSCRYPT) | Per-user keys (derived from login) | Partition-level for OS | Different teams access different configs (database ≠ API ≠ auth) |
+| **Medical Images Staging** | PACS pacs-srv-01 staging | File-level (eCryptfs) | Per-radiologist keys | Volume for archive | Per-radiologist access; HIPAA audit trail per study |
+| **Medical Images Archive** | NAS archival | Volume (encrypted RAID) | External vault | N/A | Historical images, volume-level simpler for retention |
 | **Email** | O365 Cloud | Microsoft-managed + S/MIME | Microsoft (O365) | S/MIME for sensitive emails | MedDefense adds S/MIME for extra protection |
 | **Laptops** | Portable devices | Full-disk (BitLocker/FileVault) | TPM 2.0 or PIN | Recovery key in vault | Transparent to users; high-theft protection |
 | **Medical Device Firmware** | BD Alaris Pump | Firmware signing + Config encryption | RSA-2048 signature | DICOM TLS network | Lightweight for constrained devices; network-based protection primary |
 
-**Key Principle:** Layered encryption—no single level is perfect. Use full-disk where possible (fallback), database-level where DBMS supports it (transparency for queries), record-level where compliance demands extreme granularity.
+**File-Level Encryption is Recommended as Primary for 3 MedDefense Use Cases:**
+1. **Backup Exports:** Selective encryption based on team access (clinical vs. accounting)
+2. **Configuration Files:** Per-team encryption (database credentials from API credentials)
+3. **Medical Images Staging:** Per-radiologist encryption with audit trail (HIPAA requirement)
+
+**Key Principle:** Layered encryption—no single level is perfect. File-level provides granular access control when different users/teams need different keys. Use:
+- **Full-disk:** Portable devices (high-theft environments, OS protection required)
+- **Partition:** Isolating sensitive data partitions from OS
+- **Volume:** Large storage pools requiring transparent encryption
+- **File-level:** Mixed sensitivity, team-based access control, audit trails per file
+- **Database:** Application-level queries need decrypted data with DBMS ACLs
+- **Record:** Extreme sensitivity requiring per-field protection even from DBAs
 
 Dépôt:
 
