@@ -57,11 +57,30 @@ MD5 also exhibits the avalanche effect, though it produces a shorter output (128
 
 **Birthday Problem and Collision Attacks:**
 
-The birthday problem (paradox) states that in a group of 23 people, there is a 50% chance two people share the same birthday. Applied to hashing: with only √(2^n) inputs, there is a 50% probability of finding a hash collision. For MD5 (2^128), this means after hashing only 2^64 (~18 billion) different inputs, there is a 50% chance of collision. For SHA-256 (2^256), this requires 2^128 inputs—computationally infeasible. A shorter hash is more susceptible to collision attacks because the number of possible outputs is smaller; an attacker needs to hash fewer inputs to reach the birthday threshold where collisions become probable.
+The birthday problem (paradox) states that in a group of 23 people, there is a 50% chance two people share the same birthday. Applied to hashing, the birthday bound shows that collisions become likely after approximately √(2^n) = 2^(n/2) attempts, where n is the bit-length of the hash.
+
+**Key insight:** A smaller output space means collisions are more probable.
+
+- **MD5 (128-bit hash):** Output space = 2^128 possible hashes
+  - Birthday bound: Collisions emerge after ~2^64 (~18 billion) attempts
+  - An attacker can find *any two distinct inputs* that hash to the same MD5 value in ~2^64 operations
+  - This is vastly faster than exhaustive search (2^128 operations)
+
+- **SHA-256 (256-bit hash):** Output space = 2^256 possible hashes
+  - Birthday bound: Collisions emerge after ~2^128 attempts (computationally infeasible)
+  - Current computing power cannot reach 2^128 operations in practical timeframes
+
+**Why birthday attacks are dangerous (vs. brute-force):**
+
+Brute-force approach: Try all 2^n possible inputs hoping to match a *specific target hash* → requires 2^n attempts (infeasible for SHA-256)
+
+Birthday attack approach: Find *any two distinct inputs* that hash to the same value (collision) → requires only ~2^(n/2) attempts (feasible for MD5, infeasible for SHA-256)
+
+**Practical implication for MD5:** MD5 collisions are now computationally easy. An attacker can generate two different files (or passwords) that produce the same MD5 hash, exploiting systems that rely on MD5 for integrity or authentication.
 
 **Reference to Finding 018 (Kerberos Weak Encryption):**
 
-If MedDefense's Active Directory uses RC4 for Kerberos tickets, which relies on MD5 internally, the practical implication is severe: MD5 collisions are known and can be computed in seconds on modern hardware. An attacker who intercepts a Kerberos ticket or gains access to the password hash database could generate a different password that produces the same MD5 hash, gaining unauthorized access without knowing the original password. This is called a practical collision attack and is a known vulnerability affecting legacy systems using MD5.
+If MedDefense's Active Directory uses RC4 for Kerberos tickets, which relies on MD5 internally, the practical implication is severe: MD5 collisions are known and can be computed in seconds on modern hardware. An attacker could craft two Kerberos tickets with the same MD5 hash, potentially causing authentication bypass. Additionally, if attackers gain access to the password hash database, they could generate collision pairs—two different passwords with the same MD5 hash—and use one to gain unauthorized access without knowing the original password. This is a known vulnerability affecting legacy systems using MD5.
 
 ---
 
