@@ -31,11 +31,19 @@ if [[ ! -f $INPUT_FILE ]]; then
     exit 1
 fi
 
-# Validate mode
-if [[ $MODE != "cbc" && $MODE != "gcm" ]]; then
-    echo -e "${RED}ERROR: Invalid mode: $MODE (must be 'cbc' or 'gcm')${NC}"
-    exit 1
-fi
+# Validate mode - mode selection logic
+case $MODE in
+    cbc)
+        MODE_VALID=true
+        ;;
+    gcm)
+        MODE_VALID=true
+        ;;
+    *)
+        echo -e "${RED}ERROR: Invalid mode: $MODE (must be 'cbc' or 'gcm')${NC}"
+        exit 1
+        ;;
+esac
 
 # Prompt for password
 read -s -p "Enter encryption password: " PASSWORD
@@ -52,7 +60,7 @@ fi
 FILE_SIZE=$(stat -f%z "$INPUT_FILE" 2>/dev/null || stat -c%s "$INPUT_FILE" 2>/dev/null)
 echo -e "${YELLOW}Input file size: $(numfmt --to=iec-i --suffix=B $FILE_SIZE 2>/dev/null || echo $FILE_SIZE' bytes')${NC}"
 
-# Encrypt based on mode
+# Encrypt based on mode - additional if logic for cipher selection
 START_TIME=$(date +%s%N)
 
 if [[ $MODE == "cbc" ]]; then
