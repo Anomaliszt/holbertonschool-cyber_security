@@ -142,27 +142,56 @@ Salting defeats rainbow tables by making each password unique even if the passwo
 
 Bcrypt applies a one-way hash function to the password and a salt, then iterates the hash multiple times (controlled by the "cost factor"). Unlike simple hashing, which is fast, bcrypt is deliberately slow—it takes 100+ milliseconds to compute a single hash. This slowness is intentional: it makes brute-force attacks impractical because an attacker cannot test millions of password guesses per second. The "cost factor" (typically 10-12) controls how many iterations are performed; increasing the cost factor by 1 doubles the computation time.
 
-**Recommendation for MedDefense:** Bcrypt is excellent for application password storage and is the historical standard for Unix/Linux password storage.
+**For MedDefense:** Bcrypt is acceptable for application password storage (work factor 12+), but Argon2 is preferred.
 
 ### PBKDF2 (Password-Based Key Derivation Function 2)
 
 PBKDF2 is a NIST standard that applies a pseudorandom function (HMAC) to a password and salt, then repeats this process thousands of times (iteration count). The iteration count parameter (typically 100,000-600,000) directly controls how many times the pseudorandom function is applied; more iterations = more computation time and greater resistance to brute-force. PBKDF2 is standardized, widely supported, and used by many frameworks (e.g., Django default).
 
-**Recommendation for MedDefense:** PBKDF2 is solid for application password storage, especially if NIST compliance is required. Use high iteration counts (≥600,000 for 2024 recommendations).
+**For MedDefense:** PBKDF2 is acceptable if NIST compliance is required, but Argon2id is strongly preferred for new applications.
 
 ### Argon2
 
-Argon2 is a memory-hard algorithm that uses both CPU time and memory (RAM) to compute a hash. This is more resistant to GPU/ASIC attacks than bcrypt or PBKDF2 because GPUs are optimized for parallel CPU operations but not for memory-intensive operations. Argon2 has two variants: Argon2i (memory-hard, resistant to GPU attacks) and Argon2d (faster, resistant to side-channel attacks). Parameters include memory cost, time cost, and parallelism, giving fine-grained control over security vs. performance.
+Argon2 is a memory-hard algorithm that uses both CPU time and memory (RAM) to compute a hash. This is more resistant to GPU/ASIC attacks than bcrypt or PBKDF2 because GPUs are optimized for parallel CPU operations but not for memory-intensive operations. Argon2 has two variants: Argon2i (memory-hard, resistant to GPU attacks) and Argon2d (faster, resistant to side-channel attacks). Argon2id combines both (recommended for general use). Parameters include memory cost, time cost, and parallelism, giving fine-grained control over security vs. performance.
 
-**Recommendation for MedDefense:** Argon2 is the most modern and secure for new projects, though bcrypt is sufficient for legacy systems.
+**For MedDefense:** Argon2id (not Argon2i or Argon2d) with memory cost 64 MB, time cost 3 iterations, parallelism 4 is the **recommended standard** for all application password storage.
 
 ### Active Directory Default
 
-Active Directory uses **NTLM hashing by default** (Windows NT LAN Manager), which is cryptographically weak and deprecated. NTLM lacks salt, permitting rainbow table attacks, and is vulnerable to pass-the-hash attacks where an attacker uses the NTLM hash directly to authenticate without knowing the plaintext password. Modern versions of Windows Server support PBKDF2 (via Group Policy), but NTLM is still the default for backward compatibility. This is inadequate for modern security.
+Active Directory stores passwords as **NT hashes (NTLM-compatible hashes)** by default. Older systems may also keep **LM hashes** (legacy, even weaker). Neither is salted:
+- **NTLM hash:** No salt → vulnerable to rainbow table attacks; used in pass-the-hash attacks where attacker uses hash directly to authenticate without plaintext password
+- **LM hash:** Severely deprecated; split into 7-character halves (even weaker to brute-force)
 
-**MedDefense Recommendation:** 
-- **For application passwords (web portal, database):** Use Argon2 with high memory cost (64 MB), high time cost (3 iterations), and parallelism=4. This is resistant to GPU attacks and future-proof.
-- **For Active Directory user passwords:** Cannot replace NTLM without significant infrastructure changes, but enforce strong password policy (12+ characters, complexity) and consider multi-factor authentication (MFA) to compensate for NTLM weakness. Research implementing PBKDF2 on new domain controllers if supported by MedDefense's Windows version.
+This design is inadequate for modern security but kept for backward compatibility.
+
+**MedDefense Assessment:** 
+- **AD default for user passwords:** NT hash (NTLM) is acceptable **only for backward compatibility**, not ideal in practice
+- **Weakness:** Offline cracking (no salt), pass-the-hash vulnerability (hash = ticket for authentication), no key stretching (fast to brute-force)
+- **Mitigation:** Enforce strong password policy (14+ characters, complexity), multi-factor authentication (MFA), and disable LM hash storage (Group Policy: Network Security: Do not store LAN Manager hash value)
+- **Future upgrade:** Implement SHA-256 Kerberos (Finding 018) which uses PBKDF2 internally, more resistant to offline cracking
+
+**MedDefense Application Password Storage:**
+
+For the patient portal and backend services (not AD domain accounts):
+- **Primary recommendation: Argon2id**
+  - Memory: 64 MB
+  - Time: 3 iterations
+  - Parallelism: 4
+  - Salt: randomly generated (≥16 bytes), stored with hash
+  - This resists GPU/ASIC attacks and is future-proof
+  
+- **Acceptable fallback: Bcrypt**
+  - Cost factor: 12 (minimum; 13+ better)
+  - Salt: auto-generated (bcrypt includes salt)
+  - If Argon2 unavailable in your framework
+
+- **Not recommended: PBKDF2**
+  - OK for compliance, but slower than Argon2id without memory resistance
+  - If forced (e.g., .NET older versions), use HMAC-SHA-256, iterations ≥600,000
+
+- **Absolutely not: MD5, SHA-1, SHA-256 without stretching**
+  - Too fast to brute-force; no resistance to GPU attacks
+  - No salt (for MD5/SHA-1) = rainbow table vulnerability
 
 ---
 
