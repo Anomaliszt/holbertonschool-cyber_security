@@ -78,9 +78,29 @@ Birthday attack approach: Find *any two distinct inputs* that hash to the same v
 
 **Practical implication for MD5:** MD5 collisions are now computationally easy. An attacker can generate two different files (or passwords) that produce the same MD5 hash, exploiting systems that rely on MD5 for integrity or authentication.
 
-**Reference to Finding 018 (Kerberos Weak Encryption):**
+**Reference to Finding 018 (Kerberos Weak Encryption - RC4/HMAC-MD5):**
 
-If MedDefense's Active Directory uses RC4 for Kerberos tickets, which relies on MD5 internally, the practical implication is severe: MD5 collisions are known and can be computed in seconds on modern hardware. An attacker could craft two Kerberos tickets with the same MD5 hash, potentially causing authentication bypass. Additionally, if attackers gain access to the password hash database, they could generate collision pairs—two different passwords with the same MD5 hash—and use one to gain unauthorized access without knowing the original password. This is a known vulnerability affecting legacy systems using MD5.
+If MedDefense's Active Directory uses RC4 encryption with HMAC-MD5 for Kerberos tickets, the practical implication is severe: these tickets can be cracked *offline* much more feasibly than with modern crypto.
+
+**The attack flow:**
+1. Attacker captures Kerberos ticket on the network (passive capture, no attack needed)
+2. Attacker takes ticket offline (off the network)
+3. Attacker brute-forces the ticket encryption (RC4 + HMAC-MD5 are weak)
+4. Attacker recovers the plaintext service account credential inside the ticket
+5. Attacker uses recovered credential to forge new tickets or access systems (pass-the-hash, privilege escalation)
+
+**Why this bypasses online protections:** Kerberos cracking happens offline (on attacker's own machine), so:
+- No account lockout triggers (no authentication attempts logged on AD)
+- No rate-limiting (attacker uses GPU/ASIC for brute-force, not sending network requests)
+- No detection of failed logins (attacker has ticket copy; no live login attempt)
+
+**MedDefense risk:** If RC4/HMAC-MD5 is in use, attackers can recover AD service account passwords offline, leading to:
+- Lateral movement across domain (compromised credentials grant access to other systems)
+- Privilege escalation (service accounts often have broad permissions)
+- Pass-the-hash attacks (reuse compromised credentials without knowing plaintext password)
+- Domain compromise (multiple Kerberos tickets = multiple credential recovery opportunities)
+
+This is why SHA256-AES Kerberos (Finding 018 recommendation) is critical: modern crypto resists offline brute-force, forcing attackers back to online attacks where detection is possible.
 
 ---
 
