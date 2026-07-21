@@ -9,12 +9,27 @@ Context: The patient portal certificate expires in 18 days. James Chen has appro
 **Decision: RSA-2048**
 
 **Justification:**
-RSA-2048 is the correct choice for MedDefense's patient portal renewal. While ECC P-256 offers equivalent security (roughly 128-bit strength, matching RSA-2048's ~112-bit strength) and better performance, browser compatibility is critical: iOS devices, older Android systems, and legacy enterprise browsers may not support ECC certificates, blocking patient access. The portal handles 800 daily connections—RSA-2048 introduces minimal performance overhead (<5ms per handshake) and is universally supported. ECC P-256 is a strategic upgrade for future renewals after MedDefense validates device support in their patient population; for this renewal, compatibility trumps marginal performance gains.
+
+RSA-2048 is the pragmatic choice for MedDefense's patient portal renewal, balancing security, compatibility, and operational simplicity.
+
+**Security Comparison (Honest Analysis):**
+- **ECC P-256:** ~128-bit equivalent symmetric security (stronger than RSA-2048)
+- **RSA-2048:** ~112-bit equivalent symmetric security (adequate for healthcare, meets NIST guidance through 2030)
+- **Verdict on strength:** ECC P-256 is cryptographically *superior*, but RSA-2048 is sufficiently secure for a patient portal. The 16-bit gap is irrelevant in practice; neither is cracked via algorithm strength in real-world timescales.
+
+**Compatibility & Operational Reality:**
+- **ECC P-256 support:** Universal in modern browsers (TLS 1.3, all recent iOS/Android/Chrome/Firefox/Safari). Legacy systems (pre-2015) are vanishingly rare in patient populations.
+- **RSA-2048 support:** 100% universal across all browsers, including legacy. No known compatibility risk.
+- **Patient impact:** 800 daily connections is low volume; either algorithm performs identically (<1ms handshake difference). Compatibility risk (ECC blocking patients) outweighs performance benefit.
+
+**Risk Assessment:**
+- **Choose RSA-2048 because:** Certificate renewal in 18 days is time-critical; RSA-2048 eliminates compatibility testing and edge-case browser issues. MedDefense cannot afford a certificate that breaks for even 0.1% of patients mid-renewal.
+- **Future strategy:** After portal renewal stabilizes, evaluate ECC P-256 for next renewal cycle (90 days out), with browser compatibility validation in your patient demographic first.
 
 **Algorithm Reference from T6 (Algorithm Landscape):**
-- RSA-2048: Recommended for web servers until 2030+; acceptable performance; universal compatibility
-- ECC P-256: Recommended for new deployments; requires modern browser support; 5.64× smaller key size
-- **Chosen: RSA-2048 for maximum compatibility on portal renewal**
+- RSA-2048: Acceptable through 2030+; universal compatibility; mature implementation in all systems
+- ECC P-256: Cryptographically superior; modern; requires no compatibility concerns in current browsers; 5.64× smaller key size
+- **Chosen: RSA-2048 to eliminate renewal-cycle risk; ECC P-256 for future strategic upgrade after validation**
 
 **Key Generation Command:**
 
