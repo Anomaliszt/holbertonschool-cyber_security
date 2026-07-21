@@ -12,16 +12,17 @@ The avalanche effect demonstrates that even a single bit change in input should 
 
 ```bash
 echo -n "MedDefense" | sha256sum
-> 1c0f2e9e7d3a5f2c8b1e6a9d4f2c8b1e7d3a5f2c8b1e6a9d4f2c8b1e7d3a5f
+39e026e107a44b2268e43e16e61033fdcc5d2bd62b23e03aca51db35c8671098
 
 echo -n "MedDefense1" | sha256sum
-> a7b4c2d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a
+97a4141d69cc726a7f6ef577df588d4010c3fe4f235a8bdb616732ba9bf17b92
 ```
 
 **Comparison:**
-- MedDefense:  `1c0f2e9e7d3a5f2c8b1e6a9d4f2c8b1e7d3a5f2c8b1e6a9d4f2c8b1e7d3a5f`
-- MedDefense1: `a7b4c2d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a`
+- MedDefense:  `39e026e107a44b2268e43e16e61033fdcc5d2bd62b23e03aca51db35c8671098`
+- MedDefense1: `97a4141d69cc726a7f6ef577df588d4010c3fe4f235a8bdb616732ba9bf17b92`
 - **Characters Different: 62 out of 64 (96.9%)**
+- Single character added ("1") caused 96.9% of output to change—this is the avalanche effect.
 
 The single character change (addition of "1") changes almost the entire hash. This is the avalanche effect in action.
 
@@ -29,16 +30,17 @@ The single character change (addition of "1") changes almost the entire hash. Th
 
 ```bash
 echo -n "MedDefense" | md5sum
-> 5a7c2d9e1f3a5b7c9d1e3f5a7b9c1d3e
+75d47fd4b4d183456d0f98fd9ba6ae4d
 
 echo -n "MedDefense1" | md5sum
-> b4d8e2f1c3a5b7c9d1e3f5a7b9c1d3e5
+0d2aed72043f78c2935e61ba8520306d
 ```
 
 **Comparison:**
-- MedDefense:  `5a7c2d9e1f3a5b7c9d1e3f5a7b9c1d3e`
-- MedDefense1: `b4d8e2f1c3a5b7c9d1e3f5a7b9c1d3e5`
+- MedDefense:  `75d47fd4b4d183456d0f98fd9ba6ae4d`
+- MedDefense1: `0d2aed72043f78c2935e61ba8520306d`
 - **Characters Different: 30 out of 32 (93.8%)**
+- MD5 also demonstrates the avalanche effect: single-character change causes 93.8% of output to change.
 
 MD5 also exhibits the avalanche effect, though it produces a shorter output (128 bits vs. 256 bits for SHA-256).
 
@@ -81,11 +83,11 @@ This is possible because "password123" is an extremely common password. Rainbow 
 
 ```bash
 echo -n "s4lt9xQ2:password123" | md5sum
-> 7f8e3c9d2a1b4f6c5e8a7d1c9f3b2e5a
+6d537fa53f1db2c22b0451ef4ef9fbe8
 ```
 
 **Crackstation.net Result:**
-The salted hash `7f8e3c9d2a1b4f6c5e8a7d1c9f3b2e5a` returns **NOT FOUND**.
+The salted hash `6d537fa53f1db2c22b0451ef4ef9fbe8` returns **NOT FOUND** because the salt makes it unique. Without pre-computation of this specific salt+password combination, the hash is not in any rainbow table.
 
 **Why Salting Defeats Rainbow Tables:**
 
