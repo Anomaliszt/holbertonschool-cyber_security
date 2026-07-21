@@ -50,7 +50,7 @@ if [[ $ACTUAL_HASH == $EXPECTED_HASH ]]; then
 else
     echo -e "${RED}INTEGRITY FAILED${NC}"
     echo -e "${RED}File: $FILE_PATH${NC}"
-    echo -e "${RED}Expected: $EXPECTED_HASH${NC}"
-    echo -e "${RED}Got:      $ACTUAL_HASH${NC}"
+    echo -e "${RED}expected $EXPECTED_HASH${NC}"
+    echo -e "${RED}got $ACTUAL_HASH${NC}"
     exit 1
 fi
