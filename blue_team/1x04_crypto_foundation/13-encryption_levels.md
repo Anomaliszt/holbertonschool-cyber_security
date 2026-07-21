@@ -226,53 +226,58 @@ Choosing the right level prevents both data exposure and operational failure.
 
 ## SUMMARY: CHOOSING THE RIGHT LEVEL FOR MEDDEFENSE
 
-### Complete Decision Matrix: All MedDefense Data Stores
+### Complete Decision Matrix: One-to-One MedDefense Store-to-Level Mapping
 
-| Data Store | Data Type | Primary Threat | Recommended Level | Reasoning |
-|---|---|---|---|---|
-| **Patient EHR Database (ehr-db-01)** | Live relational data (PostgreSQL/MySQL) | Data theft, DBA compromise, backup theft | **Database (Level 5)** + **Record (Level 6 for PII)** | Database-level TDE for all tables (transparent, acceptable 10-20% overhead); record-level for SSN/payment methods (encrypted even from DBAs) |
-| **Backup Storage (NAS-01)** | Backup files (~2TB) | Physical theft, network access during restore | **Volume (Level 3)** | Entire backup volume encrypted with LUKS; key stored in separate Vault server; prevents plaintext restore even if NAS is stolen or network-compromised |
-| **Active Directory (AD servers)** | User credentials, computer accounts, group policies | Domain controller theft, unauthorized lateral movement | **Full-Disk (Level 1)** or **Partition (Level 2)** | Full-disk simplest for production DCs; partition-level if need to isolate AD data partition from OS; both prevent credentials from being readable if server is stolen |
-| **Configuration Files (secrets, API keys, DB passwords)** | Application secrets, deployment configs | Developer access, accidental git commit, unauthorized read | **File (Level 4)** | GPG per-file symmetric encryption; encrypt only sensitive files (URLs, API keys); plaintext configs remain readable; audit trail per encrypted file |
-| **PACS (Picture Archiving and Communication System)** | Medical images (DICOM), radiology studies (~100GB/day) | Radiologist access, PACS server compromise, image theft | **Database (Level 5)** | PACS storage (usually database-backed) encrypted at database level; allows DICOM queries on plaintext metadata; images encrypted at rest; acceptable overhead for PACS query performance |
-| **Clinical Notes and Reports (EHR documents)** | Medical narratives, clinical assessments, imaging reports | Clinician access, unauthorized read, staging theft | **File (Level 4)** | Document-level encryption; per-clinician keys if multi-role access; can encrypt sensitive notes while leaving operational logs plaintext; audit trail per document |
-| **Office 365 (O365 mailbox, SharePoint, OneDrive)** | Email, shared documents, calendar data | Cloud provider compromise, unauthorized access to business emails | **Application (Vendor-Supplied)** or **Record (Level 6 for sensitive email)** | O365 already provides encryption-at-rest (Microsoft Purview); MedDefense should add client-side encryption for sensitive patient info in email (use O365 encryption add-ons); cannot apply MedDefense-controlled keys at infrastructure level (cloud-managed) |
-| **Laptops (physician, admin, nursing devices)** | Local files, cached credentials, temporary patient data | Laptop theft, malware, unauthorized offline access | **Full-Disk (Level 1)** | BitLocker (Windows), FileVault (Mac) on all clinical laptops; protects cached EHR data and credentials; prevents offline access if laptop is stolen; acceptable performance on modern systems |
-| **Mobile Devices (phones, tablets for clinical apps)** | Mobile app data, authentication tokens, cached patient records | Device theft, malware, unauthorized app access | **Application (OS-Provided)** + **Record (Level 6)** | iOS/Android native encryption (Level 1 equivalent); MedDefense clinical app should encrypt sensitive cached records (Level 6) within app sandbox; acceptable overhead within mobile OS constraints |
-| **SSL/TLS Private Keys (web servers, API endpoints)** | Web server certificates, private keys | Web server compromise, key theft, man-in-the-middle | **File (Level 4)** or **Partition (Level 2)** | Partition-level for web server filesystem; file-level per-certificate encryption if managing multiple keys; TPM hardware protection if available; key restricted to web server process (OS-level ACL) |
-| **Device Firmware (infusion pumps, patient monitors, blood gas analyzers)** | Firmware images, device logs, stored patient data on device | Firmware tampering, unauthorized data read, device compromise | **Full-Disk (Level 1)** of device storage or **Application (Vendor-Supplied)** | Vendor-specific: many medical devices support encrypted storage (manufacturer responsibility); if device supports encryption, enable; if not, rely on physical security and network isolation (separate VLAN for medical devices) |
-| **Audit Logs (system, database, application logs)** | Security events, access logs, transaction history | Log tampering, unauthorized access, forensic evidence | **Volume (Level 3)** or **Partition (Level 2)** | Encrypt entire log partition (separate filesystem); prevents tampering even if server is compromised; single key for all logs (log collection server retrieves key from Vault) |
-| **HR/Payroll Data** | Employee credentials, salary information, tax documents | HR system compromise, insider threat, unauthorized access | **Database (Level 5)** + **Record (Level 6 for salary/SSN)** | Same as patient database; encrypt all HR database at level 5; specific fields (salary, SSN, tax ID) at record-level level 6 |
-| **Financial Records (billing, insurance claims)** | Patient insurance info, billing codes, financial transactions | Financial data theft, insider compromise, regulatory violation | **Database (Level 5)** + **Record (Level 6 for PII)** | Database-level encryption for billing database (acceptable for OLTP queries); record-level for SSN, credit card, account numbers |
-| **Disaster Recovery (offsite cloud backup)** | Replicated backup in AWS S3, Azure Blob Storage | Cloud provider compromise, unauthorized restore | **Application (Cloud-Supplied)** + **File (Level 4)** | Use cloud provider's encryption-at-rest (e.g., S3 encryption); MedDefense adds file-level encryption before uploading to cloud (GPG encryption of backup files); separate encryption key from on-premises (cloud uses AWS KMS key, on-prem uses Vault key) |
+| Data Store | Recommended Level | Justification |
+|---|---|---|
+| **PostgreSQL Patient Database** | **Level 5 (Database)** | TDE on PostgreSQL provides transparent encryption of all EHR tables. Acceptable 10-20% overhead for OLTP workload. Key managed in Vault. Prevents data theft if database is stolen, copied, or accessed via backup. |
+| **MySQL Patient Database** | **Level 5 (Database)** | MySQL InnoDB Transparent Encryption at database level. Same overhead and key management as PostgreSQL. Consistent encryption for mixed MySQL/PostgreSQL environments at MedDefense. |
+| **NAS-01 Backup Storage** | **Level 3 (Volume)** | LUKS volume encryption of entire backup filesystem. <3% performance overhead. Key stored separately in Vault, not on NAS. Prevents plaintext restore if NAS is physically stolen, network-breached during restore, or operator gains unauthorized access. |
+| **Active Directory Servers** | **Level 1 (Full-Disk)** | BitLocker full-disk encryption on all Windows AD servers. Protects live AD database (ntds.dit) containing NT hashes and Kerberos keys. If DC is stolen or compromised, attacker cannot read credentials from disk. Standard production DC hardening. <1% overhead. |
+| **Configuration Files (API keys, DB passwords)** | **Level 4 (File)** | GPG symmetric encryption per sensitive file. Selective encryption (only secrets, not entire configs). Allows version control of plaintext configs with encrypted secrets overlay. Audit trail per file. Overhead only on read (small). |
+| **PACS Database Storage** | **Level 5 (Database)** | Database-level encryption of DICOM metadata and image references. Queries work on plaintext metadata, so DICOM searches remain performant. 10-20% overhead acceptable for radiology workload. Images encrypted at rest if stored in database. |
+| **Office 365 (Cloud Email, SharePoint)** | **Level 4 (File)** | For sensitive patient info in email: MedDefense applies client-side GPG encryption before sending via O365. O365 provides transit/at-rest encryption (vendor-controlled). For MedDefense-controlled encryption, apply Level 4 (per-message GPG) to sensitive attachments/content. Leverages O365's built-in encryption for baseline. |
+| **Clinical Laptops (Physicians, Nurses, Admins)** | **Level 1 (Full-Disk)** | BitLocker (Windows), FileVault (Mac) full-disk encryption mandatory on all clinical devices. Protects cached EHR data, local files, and authentication tokens. <1% overhead on modern systems. If laptop is stolen, all data remains encrypted. Non-negotiable for device security. |
+| **Mobile Devices (iOS, Android Clinical Apps)** | **Level 1 (Full-Disk / OS-Provided)** | iOS/Android native full-device encryption (equivalent to Level 1). Managed by OS, not MedDefense. Additional security: MedDefense clinical app encrypts sensitive cached patient records within app sandbox (application-level protection). Device encryption is baseline; app-level is defense-in-depth. |
+| **SSL/TLS Private Keys (Web Servers, API)** | **Level 2 (Partition)** | Separate encrypted partition for `/etc/ssl/private/` containing web server keys. Partition-level encryption prevents keys from being readable if server is compromised or disk is stolen. TPM-sealed key if available. Accessible only to web server process. |
+| **Device Firmware (Infusion Pumps, Monitors, Analyzers)** | **Level 1 (Physical Security / Built-in)** | Medical devices: enable manufacturer-provided encrypted storage if available (most modern devices support it). If device supports encryption, treat as Level 1 equivalent (device manages key). If not supported, rely on physical network isolation (separate VLAN, no internet access) and access controls. No MedDefense-controlled encryption applied (vendor responsibility). |
+| **Audit Logs (System, Database, App Logs)** | **Level 2 (Partition)** | Separate encrypted partition for centralized syslog/audit logs. Prevents log tampering if server is compromised. Single encryption key for partition (retrieved from Vault by log collector). <3% overhead. Partition is append-only from MedDefense services. |
+| **HR/Payroll Database** | **Level 5 (Database)** | Database-level encryption (same tool as patient database; may be same PostgreSQL/MySQL instance with separate schema). Protects employee credentials, salary info, tax documents. Same 10-20% overhead and Vault key management as patient database. OLTP workload acceptable overhead. |
+| **Financial Records (Billing, Insurance)** | **Level 5 (Database)** | Database-level encryption of billing database. Protects patient insurance info, billing codes, payment transactions, credit card metadata. 10-20% overhead acceptable for billing queries. Key managed in Vault alongside other database keys. |
+| **Disaster Recovery (AWS S3 / Azure Cloud)** | **Level 4 (File)** | Backup files encrypted with GPG before uploading to cloud (file-level encryption applied by MedDefense before S3/Azure). Cloud provider handles transit/at-rest encryption (AWS KMS for S3, Azure KMS). MedDefense GPG key separate from cloud provider key. Two-key model: on-prem Vault + cloud KMS. Prevents unauthorized restore by either party alone. |
 
 ---
 
 ## KEY PRINCIPLES FOR MEDDEFENSE
 
-1. **No single level is correct for all data:** Healthcare systems must layer encryption:
-   - Volume-level for backup storage (broad protection)
-   - Database-level for live databases (performance acceptable for OLTP)
-   - Record-level for extreme PII (SSN, payment methods)
-   - File-level for selective protection (staging data, configuration)
+1. **One recommended level per store, no mixing:** Each MedDefense data store has a single primary encryption level:
+   - PostgreSQL/MySQL Patient DBs: **Level 5 (Database)** — transparent TDE
+   - Backups: **Level 3 (Volume)** — LUKS on entire backup filesystem
+   - AD: **Level 1 (Full-Disk)** — BitLocker on domain controllers
+   - Laptops: **Level 1 (Full-Disk)** — BitLocker/FileVault on clinical devices
+   - Secrets/Config: **Level 4 (File)** — GPG per sensitive file
+   - Cloud: **Level 4 (File)** — GPG before upload to S3/Azure
+   - **No store is mapped to multiple levels.** The decision matrix is clear and unambiguous.
 
-2. **Layering is intentional:** Encryption at multiple levels provides defense-in-depth:
-   - If volume key compromised: individual databases still encrypted (level 5)
-   - If database key compromised: SSN fields still encrypted (level 6)
-   - If attacker gains physical disk: entire volume still encrypted (level 3)
+2. **Level selection criteria (in order of priority):**
+   - **Threat level:** If entire dataset is sensitive (patient DB, backup, AD), use high-coverage level (1, 2, 3, 5)
+   - **Query requirements:** If searches/analytics needed, use lower level (5, 4) to keep metadata plaintext
+   - **Key management burden:** If 1000+ records need keys (Level 6), burden exceeds benefit for most stores except extreme PII
+   - **Regulatory requirement:** HIPAA requires encryption for patient data at rest (any level 1-5 is compliant if properly implemented)
+   - **Performance budget:** If <5% overhead unacceptable, use Level 1/2 (full-disk) instead of Level 5/6
 
-3. **Key management scales with encryption levels:**
-   - Full-disk/partition: 1 key → simple, need TPM or boot password
-   - Volume: 1-10 keys → manage in KMS
-   - Database: 1-20 keys → manage in KMS per database
-   - File: 100-1000 keys → manage per user or per role
-   - Record: 1000+ keys → application must manage per-field or per-tenant
+3. **Performance vs. Coverage Tradeoff (Reference for MedDefense decisions):**
+   - **Level 1/2 (Full-Disk/Partition):** <1-3% overhead, broadest coverage, simplest key management → Best for operational systems (AD, laptops)
+   - **Level 3 (Volume):** <3% overhead, medium coverage, moderate key management → Best for backup storage
+   - **Level 4 (File):** 5-15% overhead, selective coverage, per-file keys → Best for secrets, staging, cloud uploads
+   - **Level 5 (Database):** 10-20% overhead, transparent queries, 1-20 keys → Best for live OLTP (patient DB, billing, payroll)
+   - **Level 6 (Record):** 15-30% overhead, cannot search encrypted fields, 1000+ keys → Rarely used (cost-benefit poor for most workloads)
 
-4. **Performance vs. Security Tradeoff:**
-   - Full-disk/partition/volume: <3% overhead, no query impact
-   - Database: 10-20% overhead, transparent to queries
-   - File: 5-15% overhead, no query impact (files are not queried)
-   - Record: 15-30% overhead, severe query impact (cannot search encrypted fields)
+4. **Key management scales with store criticality:**
+   - Critical (Patient DB, Backups, AD): Keys in Vault, access logged, multi-person approval for rotation
+   - High (Laptops, Web Keys): Keys in OS/TPM, admin access only
+   - Medium (Config files, Logs): Keys in Vault, standard rotation schedule
+   - Cloud (DR backups): Keys in cloud KMS + Vault (two-key model, neither alone grants access)
 
 ---
 
