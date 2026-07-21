@@ -24,7 +24,7 @@ Choosing the wrong level either leaves data exposed or creates operational probl
 | Level | When It's the Best Choice | Trade-offs |
 |---|---|---|
 | **Full-Disk** | Physical servers in accessible locations (data centers, branch offices) where theft/unauthorized access to hardware is possible; OS security relies on startup authentication | Protects against disk theft but not logical attacks; slow at startup; if attacker gains OS access, all data visible |
-| **Partition** | Multi-tenant systems where different tenants' data must be on same server but encrypted separately; compliance requirement to isolate data | Administrative overhead; must plan partitions in advance |
+| **Partition** | Separating sensitive data from OS: place database partition on separate encrypted partition so if OS partition is compromised, database files remain encrypted; compliance requirement to isolate sensitive data from system files; multi-tenant systems where different data volumes need different encryption keys | Administrative overhead: must plan partitions during installation; limited flexibility to change partition sizes post-deployment; single key for entire partition (cannot encrypt individual files within partition differently) |
 | **Volume** | Large-scale RAID/NAS environments where encryption must span multiple physical disks transparently | Single key weakness: compromise of one key exposes entire volume |
 | **File** | Selective protection when only some files are sensitive; systems where different users need different encryption keys; backup data with mixed sensitivity | Still requires volume/disk protection for complete security; doesn't protect unencrypted files |
 | **Database** | DBMS handles complex queries on encrypted data; users need role-based access control through database (not key management); compliance requirement for database-specific encryption | Requires DBMS support; doesn't protect database backups if backups are unencrypted; keys must be protected in database |
@@ -32,88 +32,165 @@ Choosing the wrong level either leaves data exposed or creates operational probl
 
 ---
 
+## PARTITION-LEVEL ENCRYPTION IN DETAIL
+
+**What It Is:** A logical partition (e.g., /var/lib/postgresql) on a disk is encrypted as a unit, separate from other partitions (e.g., /boot, /home, /).
+
+**Key Characteristics:**
+- **Scope:** All files within the partition are encrypted with a single key
+- **Performance:** Minimal overhead (filesystem layer handles encryption/decryption transparently)
+- **Key Management:** One key per partition; can be different from other partitions
+- **Use Case Strength:** Isolating sensitive data (database, financial records) from OS system files
+
+**MedDefense Partition Scenario:**
+
+Imagine ehr-db-01 is configured with partitions:
+```
+/          (OS + application files)                  ← NOT encrypted
+/var/lib/postgresql  (database files)               ← ENCRYPTED with KEY-A
+/backup    (local backup staging)                   ← ENCRYPTED with KEY-B
+```
+
+**Benefits:**
+- If OS partition is compromised (attacker gains root), database files on /var/lib/postgresql are still encrypted (attacker cannot read database files directly without KEY-A)
+- Different keys for different partitions (if /var/lib/postgresql key is compromised, /backup is still protected by KEY-B)
+- Better than full-disk encryption (if one key is compromised, only one partition is exposed, not entire disk)
+- More flexible than file-level encryption (administrator does not need to decide which individual files to encrypt; entire partition is encrypted at filesystem level)
+
+**Trade-offs:**
+- **Planning Complexity:** Partition scheme must be planned at OS installation time. Resizing partitions requires disk manipulation (more complex than managing file-level encryption)
+- **Administrative Overhead:** Each partition has its own mount point and key; managing multiple keys is more complex than one key for entire disk
+- **Mixed Sensitivity:** Cannot encrypt some files within /var/lib/postgresql differently than others; all files in partition share the same key and encryption
+
+**LUKS (Linux Unified Key Setup) Implementation:**
+```bash
+# During Linux installation, create encrypted partition:
+# /dev/sda1 = /boot (unencrypted)
+# /dev/sda2 = encrypted LUKS container for LVM physical volume
+# LVM creates: /var/lib/postgresql, /backup, /var/log as logical volumes
+
+# Open encrypted partition at boot:
+cryptsetup luksOpen /dev/sda2 meddefense-data
+# This unlocks the LUKS container, allowing LVM volumes to mount
+
+# Alternative: Use LUKS directly on partition (no LVM)
+cryptsetup luksFormat /dev/sda3 --label=postgresql-data
+cryptsetup luksOpen /dev/sda3 pg-encrypted
+mkfs.ext4 /dev/mapper/pg-encrypted
+mount /dev/mapper/pg-encrypted /var/lib/postgresql
+```
+
+**MedDefense Recommendation:** 
+- Use partition-level encryption for ehr-db-01 /var/lib/postgresql to isolate database from OS
+- Use separate LUKS container with separate key for backup partition (/backup or /mnt/backups)
+- Protects against: OS compromise does not expose database files; database compromise does not expose backups
+
+---
+
 ## MEDDEFENSE ENCRYPTION LEVEL MAP
 
 ### 1. Patient Records in PostgreSQL (ehr-db-01)
 
-**Recommended Level:** Database-level encryption (PostgreSQL TDE)
+**Recommended Level:** Partition-level encryption (LUKS) + Database-level encryption (PostgreSQL TDE)
 
 **Justification:**
-MedDefense needs to encrypt all patient medical records (PHI: medications, diagnoses, procedure notes, clinical observations). Database-level encryption allows clinicians to query records through normal SQL (they see decrypted data based on role-based access control), while the underlying data files are encrypted at rest. If an attacker compromises the server OS and tries to read database files directly (bypassing PostgreSQL ACLs), the files are encrypted and unreadable. This provides protection against:
-- Root compromises (attacker cannot read database files directly)
-- Physical disk theft (data cannot be read by another system)
-- But NOT: SQL injection to see other patients' data (that's handled by row-level security, not encryption)
+MedDefense's ehr-db-01 database server should use partition-level encryption to isolate the database partition (/var/lib/postgresql) from the OS partition (/). This provides defense-in-depth:
+- **Partition-level:** If OS is compromised (attacker gains root), database files are still encrypted with LUKS (attacker cannot read .sql files directly)
+- **Database-level:** If partition is unlocked (key is available at runtime), queries still go through PostgreSQL ACLs (row-level security prevents one patient's data from being visible to another patient's clinician)
 
-**Secondary Layers:**
-- Full-disk encryption (backup layer): If PostgreSQL TDE fails or is misconfigured, full-disk encryption provides fallback
-- Record-level encryption for most sensitive fields: If compliance requires encryption even from DBA, add column-level encryption for patient SSN, credit card numbers
+**Why Partition + Database?** Partition encryption protects the disk files (physical layer); database encryption protects queries and access control (logical layer). Combined, they provide protection against:
+- Root compromise (cannot read database files directly)
+- Disk theft (files are LUKS-encrypted)
+- Logical attacks (SQL queries are still controlled by database ACLs)
 
 **Implementation:**
-```sql
--- PostgreSQL 14+
-CREATE EXTENSION pgcrypto;
-ALTER SYSTEM SET ssl_key_file = '/secure/path/to/key';
-```
+- OS Installation: Create partitions:
+  - /boot (unencrypted, required for boot)
+  - /var/lib/postgresql (encrypted with LUKS, separate key KEY-A)
+  - / (system files, can be encrypted or unencrypted)
+  - /backup (encrypted with LUKS, separate key KEY-B for backup isolation)
 
-**Key Management:** Store PostgreSQL encryption key in external key management system (HashiCorp Vault, AWS KMS); NOT on the same server (if compromised, key is also compromised).
+- Database: Enable PostgreSQL TDE (13.0+)
+
+**Key Management:** 
+- LUKS Key (KEY-A) for /var/lib/postgresql: Store in external HSM or Vault, brought online at boot time or via automated unlock service
+- PostgreSQL encryption key: Store in external KMS (different from LUKS key; separation of duties)
+
+**Boot Sequence:**
+1. Server boots; /boot is unencrypted (OS can start)
+2. Systemd runs before database: unlock LUKS containers with keys from Vault
+3. Mount /var/lib/postgresql (now available)
+4. PostgreSQL starts and reads its TDE configuration
+5. PostgreSQL engine decrypts database pages as queries arrive
 
 ---
 
 ### 2. Backup Data on NAS-01
 
-**Recommended Level:** Volume-level encryption (encrypted RAID)
+**Recommended Level:** Volume-level encryption (encrypted RAID) + Partition-level encryption for on-server staging
 
 **Justification:**
-Backups contain all data: PostgreSQL dumps (plaintext patient records), MySQL dumps (plaintext billing data), DICOM files (plaintext medical images). All backups must be encrypted as a single volume to ensure if the NAS is compromised or stolen, backup data cannot be extracted. Volume-level encryption is appropriate because:
+Backups on NAS-01 use volume-level encryption because:
 - All backups are equally sensitive (no selective encryption needed)
-- Encryption must be transparent to backup processes (NAS handles it automatically)
-- Single encryption key for entire backup volume is acceptable (encrypted backups cannot be accessed anyway unless NAS is online)
+- Encryption is transparent to backup processes (NAS handles automatically)
+- Volume spans multiple physical disks (RAID arrays); volume-level encryption treats them as single encrypted unit
 
-**Critical Design:** Encryption key must NOT be stored on the NAS. If NAS is ransomware-encrypted and key is on NAS, both backups AND key are lost (defeating recovery capability). External key storage is mandatory.
+Secondary layer: If MedDefense does local backup staging on ehr-db-01 before uploading to NAS, use partition-level encryption for the /backup partition (separate LUKS container).
+
+**Critical Design:** Encryption keys must NOT be stored on the NAS or backup server. Use external HSM or Vault:
+- NAS key: In physical vault (USB HSM, offsite)
+- Backup staging key: In Vault, rotated monthly
 
 **Implementation:**
-- Enable Synology NAS shared folder encryption on backup destination
-- Key: Store in external location (HashiCorp Vault, USB HSM in vault, offline secure storage)
-- Backup process: Restore key to NAS during backup window only, then remove
+- NAS: Enable shared folder encryption on backup destination (Synology/QNAP settings)
+- Backup staging (/backup): Separate LUKS partition on ehr-db-01, key in Vault
 
 ---
 
 ### 3. Financial Records in MySQL (billing-srv-01)
 
-**Recommended Level:** Database-level encryption + Record-level encryption (hybrid)
+**Recommended Level:** Partition-level encryption + Database-level encryption + Record-level encryption (triple layer)
 
 **Justification:**
-Financial data contains: patient names, dates of birth, SSNs, insurance policy numbers, credit card last-4s, 3 years of billing records. Some of this data needs different protection levels:
-- Standard medical identifiers (patient name, DOB) = database-level sufficient
-- Highly sensitive PII (SSN, credit card, policy numbers) = record-level encryption needed
+Financial data is heavily regulated (PCI-DSS for credit cards, state financial privacy laws, HIPAA for billing). Implement defense-in-depth:
+- **Partition-level:** /var/lib/mysql on separate LUKS container (if OS is compromised, database is encrypted)
+- **Database-level:** MySQL InnoDB TDE (protects database pages at rest)
+- **Record-level:** Encrypt most sensitive columns (SSN, credit card, policy numbers) at application level using AES-256
 
-Hybrid approach: Use MySQL at-rest encryption for database files (database-level), then add application-level encryption for the most sensitive columns (SSN, credit card fragments) using AES-256 in the application tier.
-
-**Benefit:** Billing staff can run SQL queries to find "all charges for patient ID 12345" (database-level encryption handles this transparently), but cannot see the patient's SSN even if they manually query the database (application-level encryption requires decryption key held by billing system, not DBA).
+Benefits:
+- Billing staff can run SQL queries (database-level TDE is transparent)
+- Most sensitive fields are encrypted even if database is accessed directly (record-level encryption)
+- Partition encryption is defense-in-depth against OS compromise
 
 **Implementation:**
-- Database: MySQL InnoDB TDE
-- Application: Encrypt SSN, Credit card (last 4), Insurance policy in application before storing
+```bash
+# Partition
+cryptsetup luksFormat /dev/sda4 --label=mysql-data
+cryptsetup luksOpen /dev/sda4 mysql-encrypted
+mkfs.ext4 /dev/mapper/mysql-encrypted
+mount /dev/mapper/mysql-encrypted /var/lib/mysql
+
+# Database
+ALTER SYSTEM SET innodb_encrypt_tables=ON;  # MySQL 8.0+
+
+# Record (application-level)
+-- Encrypt SSN, credit card columns in application before insert
+SELECT aes_encrypt(ssn, KEY), aes_encrypt(credit_card, KEY) FROM patient_billing;
+```
 
 ---
 
 ### 4. Medical Images on PACS (pacs-srv-01)
 
-**Recommended Level:** File-level encryption + Volume-level backup encryption
+**Recommended Level:** Partition-level encryption (local PACS storage) + File-level or Volume-level encryption (network storage)
 
 **Justification:**
-DICOM files are large (typically 2-10MB per image). Encrypting at file level is appropriate because:
-- Each DICOM file is independent and can be encrypted/decrypted individually
-- PACS system manages file access (radiologists request specific studies); file-level encryption aligns with this access model
-- File-level encryption allows audit trails per file (which radiologist accessed which study)
-
-For storage:
-- If PACS files are on dedicated storage (NAS or SAN), add volume-level encryption as secondary protection
-- DICOM files should be encrypted at both levels: file-level (application handles DICOM TLS or application encryption) and volume-level (storage device encrypts at rest)
+DICOM files are stored on PACS server. For local storage, use partition-level encryption to separate DICOM files (/data/dicom) from OS (/). For network storage (NAS), use volume-level encryption.
 
 **Implementation:**
-- PACS application: Enable DICOM TLS for network transmission (CMS/HIPAA requirement)
-- Storage: Volume-level encryption on PACS storage appliance (NAS, SAN, or dedicated PACS server disk)
+- Local PACS partition: /data/dicom encrypted with LUKS
+- NAS backup: Volume-level encryption (transparent to PACS application)
+- Network transmission: DICOM TLS (CMS/HIPAA requirement)
 
 ---
 

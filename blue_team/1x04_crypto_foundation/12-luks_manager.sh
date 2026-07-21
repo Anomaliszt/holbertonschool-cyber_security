@@ -1,65 +1,160 @@
-Goal: Set up LUKS disk encryption on a loop device, understand the operational implications and design a backup encryption strategy for MedDefense.
+#!/bin/bash
 
-Context: NAS-01 stores all MedDefense backups in plaintext. If the NAS is stolen, every patient record is exposed. If the NAS is accessed through the flat network (which your 1x01 kill chains demonstrated), the backups are readable. Encrypting the backup storage at rest is a Phase 1 priority from your roadmap.
+# MEDDEFENSE LUKS ENCRYPTION MANAGER
+# Purpose: Create, open, close LUKS-encrypted volumes
+# Usage: ./12-luks_manager.sh <mode> <volume_name> [size_mb]
+# Modes: create, open, close
 
-Before you touch production, you practice on a safe target: a loop device on your own machine.
+set -e
 
-Instructions:
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-Part 1 - LUKS Setup
+# Check for root/sudo
+if [[ $EUID -ne 0 ]]; then
+    echo -e "${RED}ERROR: This script must be run as root or with sudo${NC}"
+    exit 1
+fi
 
-Create a 500MB file to use as a virtual disk:
+# Validate arguments
+if [[ $# -lt 2 ]]; then
+    echo -e "${RED}ERROR: Minimum 2 arguments required${NC}"
+    echo "Usage: $0 <mode> <volume_name> [size_mb]"
+    echo ""
+    echo "Modes:"
+    echo "  create <volume_name> <size_mb>  Create a new LUKS volume"
+    echo "  open <volume_name>               Open and mount LUKS volume"
+    echo "  close <volume_name>              Unmount and close LUKS volume"
+    echo ""
+    echo "Example: $0 create backup_vol 500"
+    exit 1
+fi
 
-dd if=/dev/zero of=encrypted_volume.img bs=1M count=500
-Set up LUKS encryption on this file:
+MODE=$1
+VOLUME_NAME=$2
+SIZE_MB=${3:-500}
+IMAGE_FILE="${VOLUME_NAME}.img"
+MOUNT_POINT="/mnt/${VOLUME_NAME}"
 
-Format with LUKS: sudo cryptsetup luksFormat encrypted_volume.img
+# CREATE MODE
+if [[ $MODE == "create" ]]; then
+    if [[ ! $SIZE_MB =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}ERROR: Size must be a number in MB${NC}"
+        exit 1
+    fi
+    
+    if [[ -f $IMAGE_FILE ]]; then
+        echo -e "${RED}ERROR: Volume file already exists: $IMAGE_FILE${NC}"
+        exit 1
+    fi
+    
+    echo -e "${BLUE}========== CREATING LUKS VOLUME ==========${NC}"
+    echo -e "${YELLOW}Volume name: $VOLUME_NAME${NC}"
+    echo -e "${YELLOW}Size: ${SIZE_MB}MB${NC}"
+    echo ""
+    
+    # Create sparse image file
+    echo -e "${YELLOW}Step 1: Creating ${SIZE_MB}MB image file...${NC}"
+    dd if=/dev/zero of="$IMAGE_FILE" bs=1M count="$SIZE_MB" status=progress
+    
+    # Format with LUKS
+    echo ""
+    echo -e "${YELLOW}Step 2: Formatting with LUKS encryption...${NC}"
+    cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --key-size 512 "$IMAGE_FILE"
+    
+    # Open volume
+    echo ""
+    echo -e "${YELLOW}Step 3: Opening encrypted volume...${NC}"
+    cryptsetup luksOpen "$IMAGE_FILE" "$VOLUME_NAME"
+    
+    # Create filesystem
+    echo ""
+    echo -e "${YELLOW}Step 4: Creating ext4 filesystem...${NC}"
+    mkfs.ext4 "/dev/mapper/$VOLUME_NAME"
+    
+    # Create mount point and mount
+    echo ""
+    echo -e "${YELLOW}Step 5: Mounting volume...${NC}"
+    mkdir -p "$MOUNT_POINT"
+    mount "/dev/mapper/$VOLUME_NAME" "$MOUNT_POINT"
+    
+    # Verify
+    echo ""
+    echo -e "${GREEN}✓ LUKS volume created successfully${NC}"
+    echo -e "${GREEN}Image file: $IMAGE_FILE${NC}"
+    echo -e "${GREEN}Mount point: $MOUNT_POINT${NC}"
+    echo -e "${GREEN}Status: OPEN and MOUNTED${NC}"
+    echo ""
+    df -h "$MOUNT_POINT"
 
-Open the encrypted volume: sudo cryptsetup luksOpen encrypted_volume.img secure_vol
+# OPEN MODE
+elif [[ $MODE == "open" ]]; then
+    if [[ ! -f $IMAGE_FILE ]]; then
+        echo -e "${RED}ERROR: Volume file not found: $IMAGE_FILE${NC}"
+        exit 1
+    fi
+    
+    echo -e "${BLUE}========== OPENING LUKS VOLUME ==========${NC}"
+    echo -e "${YELLOW}Volume: $VOLUME_NAME${NC}"
+    echo ""
+    
+    # Check if already open
+    if dmsetup info "/dev/mapper/$VOLUME_NAME" > /dev/null 2>&1; then
+        echo -e "${YELLOW}Volume already open${NC}"
+    else
+        echo -e "${YELLOW}Opening encrypted volume...${NC}"
+        cryptsetup luksOpen "$IMAGE_FILE" "$VOLUME_NAME"
+    fi
+    
+    # Create mount point if needed
+    mkdir -p "$MOUNT_POINT"
+    
+    # Check if already mounted
+    if mountpoint -q "$MOUNT_POINT"; then
+        echo -e "${YELLOW}Volume already mounted at $MOUNT_POINT${NC}"
+    else
+        echo -e "${YELLOW}Mounting volume...${NC}"
+        mount "/dev/mapper/$VOLUME_NAME" "$MOUNT_POINT"
+    fi
+    
+    echo ""
+    echo -e "${GREEN}✓ Volume opened and mounted${NC}"
+    echo -e "${GREEN}Mount point: $MOUNT_POINT${NC}"
+    echo ""
+    df -h "$MOUNT_POINT"
 
-Create a filesystem: sudo mkfs.ext4 /dev/mapper/secure_vol
+# CLOSE MODE
+elif [[ $MODE == "close" ]]; then
+    echo -e "${BLUE}========== CLOSING LUKS VOLUME ==========${NC}"
+    echo -e "${YELLOW}Volume: $VOLUME_NAME${NC}"
+    echo ""
+    
+    # Check if mounted and unmount
+    if mountpoint -q "$MOUNT_POINT"; then
+        echo -e "${YELLOW}Unmounting $MOUNT_POINT...${NC}"
+        umount "$MOUNT_POINT"
+    else
+        echo -e "${YELLOW}Volume not mounted${NC}"
+    fi
+    
+    # Check if open and close
+    if dmsetup info "/dev/mapper/$VOLUME_NAME" > /dev/null 2>&1; then
+        echo -e "${YELLOW}Closing encrypted volume...${NC}"
+        cryptsetup luksClose "$VOLUME_NAME"
+    else
+        echo -e "${YELLOW}Volume not open${NC}"
+    fi
+    
+    echo ""
+    echo -e "${GREEN}✓ Volume closed${NC}"
+    echo -e "${GREEN}Data is now encrypted and inaccessible${NC}"
 
-Mount and write test data
-
-Unmount and close: sudo cryptsetup luksClose secure_vol
-
-Document every command and its output.
-
-Part 2 - Verification
-
-After closing the LUKS volume, attempt to read the raw file:
-
-strings encrypted_volume.img | head -50
-Can you see the data you wrote ? What does this prove about encryption at rest ?
-
-Now reopen the volume and verify the data is intact. Document the full open-mount-read-unmount-close cycle.
-
-Part 3 - The LUKS Automation Script
-
-Write a script 12-luks_manager.sh that accepts a mode argument:
-
-create : creates a LUKS-encrypted volume of a specified size
-
-open : opens and mounts the volume
-
-close : unmounts and closes the volume
-
-Part 4 - MedDefense Backup Encryption Design
-
-Design the encryption-at-rest strategy for NAS-01. Address:
-
-Which encryption level is appropriate (full-disk, volume, file-level) and why
-
-What happens to backup performance (estimate the overhead based on your T1 performance measurements)
-
-Where the encryption key is stored (NOT on the NAS itself, explain why)
-
-What happens if the key is lost (backup recovery implications)
-
-How this integrates with the offsite backup replication control from your 1x03 strategy (must the cloud replica also be encrypted, and with whose key ?)
-
-Dépôt:
-
-Dépôt GitHub: holbertonschool-cyber_security
-Répertoire: blue_team/1x04_crypto_foundation
-Fichier: 12-luks_manager.sh, 12-disk_encryption.md
+else
+    echo -e "${RED}ERROR: Invalid mode: $MODE${NC}"
+    echo "Valid modes: create, open, close"
+    exit 1
+fi

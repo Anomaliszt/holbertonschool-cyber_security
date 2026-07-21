@@ -152,15 +152,17 @@ NET::ERR_CERT_DATE_INVALID (Chrome)
 
 ## PART 3: IDEAL CERTIFICATE FOR MEDDEFENSE PATIENT PORTAL
 
-### Certificate Type: Organization Validated (OV) or Extended Validation (EV)
+### Certificate Type: Organization Validated (OV)
 
 **Recommendation:** **OV (Organization Validated) certificate**
 
 **Reasoning:**
-- **DV (Domain Validated):** Only proves domain ownership, not organizational identity. Insufficient for healthcare where patients need confidence they're connecting to MedDefense Health Systems, not a phishing impostor.
-- **OV Certificate:** CA verifies organization name, legal address, phone number during issuance. Browser displays "MedDefense Health Systems" in address bar; patient sees organization name, not just domain.
-- **EV (Extended Validation):** Highest assurance; CA conducts thorough identity verification. Browser displays green lock + organization name. **Preferred but expensive ($200-1000/year)**.
-- **Healthcare Recommendation:** Minimum = OV; ideal = EV (shows commitment to security).
+- **DV (Domain Validated):** Only proves domain ownership; CA does not verify organization identity. Modern browsers no longer display organization names prominently in the address bar, so DV certs provide the same visual feedback as OV to patients. However, OV is still preferred because the underlying CA audit trail documents that MedDefense—not an attacker—controls this domain. This matters for:
+  - Post-breach incident investigations ("Did attackers ever impersonate MedDefense through a rogue certificate?")
+  - Compliance audits (HIPAA expects organizations to verify domain control + organizational legitimacy)
+  - CSR/logging requirements (OV issuance requires formal organizational documentation, leaving an audit trail)
+- **EV (Extended Validation):** Highest assurance; expensive ($200-1000/year); browsers historically showed green organization name display, but this has been deprecated in modern Chrome/Firefox. Not cost-effective for MedDefense's use case.
+- **Healthcare Deployment:** Use OV—adequate for patient portal, maintains audit trail, reasonable cost ($400-800/year).
 
 ### Certificate Authority (CA)
 
@@ -231,23 +233,23 @@ Subject Alternative Names: portal.meddefense.local, www.portal.meddefense.local,
 
 ### MedDefense Certificate Profile Summary
 
-| Criterion | Specification | Justification |
+| Criterion | Specification | Deployment Rationale |
 |---|---|---|
-| **Type** | OV (Organization Validated) | Proves MedDefense identity; displays organization name in browser |
-| **CA** | DigiCert or Sectigo | Healthcare-aware, incident response support, audited |
-| **Key Algorithm** | ECC P-256 (ECDSA-SHA256) | Modern, efficient, forward-secret compatible |
-| **Validity Period** | 1 year | Balance automation/rotation discipline |
-| **Subject** | CN=portal.meddefense.local | Primary domain |
-| **SAN Entries** | portal.meddefense.local, www.portal.meddefense.local, api.meddefense.local, billing.meddefense.local | Covers legitimate subdomains; no wildcard |
-| **Renewal Process** | Manual renewal 30 days before expiry (calendar alert set) | Prevents emergency renewals like current situation (18 days to expiry) |
-| **Estimated Cost** | $400-800/year | OV certs more expensive than DV but justified for healthcare |
+| **Type** | OV (Organization Validated) | CA verifies organizational identity during issuance (audit trail). Modern browsers don't display org name visually, but OV documentation is required for compliance audits and incident response. |
+| **CA** | DigiCert or Sectigo | Trusted, reliable; healthcare-friendly; provide CRL/OCSP for revocation checking |
+| **Key Algorithm** | RSA-2048 with SHA256 (or ECC P-256 if all client systems support it) | RSA-2048 ensures maximum browser compatibility; ECC P-256 is modern and efficient but requires testing with patient devices |
+| **Validity Period** | 1 year | Annual renewal forces security review; shorter than 2-3 years to limit key compromise window |
+| **Subject CN** | portal.meddefense.local | Primary hostname patients use to access portal |
+| **SAN Entries** | portal.meddefense.local, portal.meddefense.com (if public), www.portal.meddefense.local | Explicit list of domains; do NOT use wildcard (*.meddefense.local) to prevent attacker from creating fake subdomains if key is stolen |
+| **Renewal Process** | Manual renewal 30 days before expiry; calendar alert to Sarah Park + IT team | Prevents emergency situation like current (18-day expiry); can use automation later if processes mature |
+| **Estimated Annual Cost** | $400-800 | OV certs cost more than free DV (Let's Encrypt) but justified for healthcare organization requiring audit trail |
 
-**Action Items for MedDefense:**
-1. **Immediately:** Renew expired/expiring certificate (current cert expires in 18 days)
-2. **This Month:** Purchase OV certificate from DigiCert
-3. **Next 30 Days:** Configure ECC P-256 key pair, CSR generation, issuance
-4. **Ongoing:** Set calendar reminder for renewal at 30-day mark before expiry
-5. **Annual Audit:** Verify certificate chain, issuer reputation, SAN entries correct
+**Practical Steps for MedDefense:**
+1. **IMMEDIATE (this week):** Renew expired/expiring certificate using same CA as current cert (fastest path)
+2. **Month 1:** Generate RSA-2048 key pair; create CSR with OV validation fields; submit to DigiCert
+3. **Month 2:** Deploy new certificate on portal-srv-01; verify in production with curl/browser testing
+4. **Ongoing:** Set yearly calendar reminder 30 days before expiry; assign Sarah Park + 1 backup as responsible parties
+5. **Next Year:** Evaluate switching to ECC P-256 if all patient devices support it (smaller handshake, faster)
 
 Dépôt:
 
