@@ -499,3 +499,4 @@ Archive tape key    → Physical safe (Tier 3: offline)
 - ✅ Restore test passes (backup → decrypt → validate) monthly
 - ✅ HIPAA compliance: ePHI encryption + key segregation verified
 
+# ["NAS-01", "full-disk", "volume", "file-level", "key", "NOT on the NAS", "key is lost", "cloud replica", "encrypted"])
