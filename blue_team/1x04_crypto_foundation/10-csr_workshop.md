@@ -178,93 +178,111 @@ Certificate Request:
 **CA Selection Decision: Let's Encrypt via ACME (Recommended)**
 
 **Reasoning:**
-- **Cost:** Free (MedDefense can renew every 90 days at zero cost vs. $200-500/year for commercial CA)
-- **Automation:** ACME protocol allows fully automated renewal via Certbot; no manual CSR submission required
-- **Trustworthiness:** Let's Encrypt certificates are trusted by 99.9% of browsers (Mozilla trust store)
-- **Compliance:** Let's Encrypt is ISRG Root X1, trusted by all modern systems; acceptable for healthcare (no EV requirement needed for patient portal)
+For an 18-day emergency renewal deadline, the CSR-based workflow with manual CA submission is most reliable and transparent.
 
-**Commercial CA Alternative (if required):**
-If MedDefense requires Extended Validation (EV) for compliance audits or branded display, submit CSR to Sectigo, DigiCert, or GlobalSign with manual approval workflow. Cost: $300-500/year.
+**CA Selection Decision: Traditional CA with Manual CSR Submission**
 
-**ACME/Let's Encrypt Workflow:**
+Why this approach works for MedDefense:
+- **Predictable timeline:** Manual submission → validation → issuance typically completes within 2-4 hours
+- **Transparent:** You control each step; no hidden ACME protocol details
+- **Flexible:** Works with any CA (commercial or free)
+- **CSR reusability:** The generated CSR can be submitted to multiple CAs if needed
 
-Install Certbot (automated ACME client):
-```bash
-apt install certbot python3-certbot-apache  # Ubuntu/Debian
-# or
-yum install certbot python3-certbot-apache   # RHEL/CentOS
-```
+**Recommended CAs for CSR Submission:**
 
-Option A: Automatic (Certbot handles CSR generation, submission, validation, installation):
-```bash
-certbot certonly \
-  --apache \
-  -d portal.meddefense.local \
-  -d patients.meddefense.local \
-  -d www-patient-portal.meddefense.local \
-  --email security@meddefense.local \
-  --agree-tos \
-  --non-interactive
-```
+| CA | Cost | Validation Time | Browser Trust | Notes |
+|---|---|---|---|---|
+| Let's Encrypt (via CSR) | Free | 10-30 min | 99.9% | Fast, automated validation |
+| Sectigo | $150-300/yr | 2-4 hrs | 100% | EV available if audit required |
+| DigiCert | $200-400/yr | 2-4 hrs | 100% | Premium support |
+| GlobalSign | $150-300/yr | 2-4 hrs | 100% | Strong reputation |
 
-Option B: Manual CSR (submit pre-generated CSR):
+**For MedDefense (18-day deadline): Use Let's Encrypt with CSR submission (fastest + free)**
+
+### Step 2: Submit CSR to Let's Encrypt
+
+**Using Certbot with Your Pre-Generated CSR:**
+
 ```bash
 certbot certonly \
   --csr portal.csr \
-  --manual \
-  --preferred-challenges http \
-  --email security@meddefense.local
+  --email security@meddefense.local \
+  --agree-tos \
+  --non-interactive \
+  --preferred-challenges dns
 ```
+
+This takes your pre-generated CSR and handles validation/issuance without regenerating the key.
+
+**Alternatively, Submit to Commercial CA (Sectigo, DigiCert, GlobalSign):**
+
+1. Log into your CA account portal
+2. Select "Submit CSR"
+3. Paste the entire contents of `portal.csr` (including `-----BEGIN CERTIFICATE REQUEST-----` markers)
+4. Select validation type (DNS or HTTP) and organization details
+5. CA sends validation instructions
 
 ### Step 3: Validation Process (What the CA Verifies)
 
-**DNS Validation (Recommended):**
-Let's Encrypt verifies domain ownership by checking DNS TXT records. Certbot creates a TXT record on meddefense.local:
-```
-_acme-challenge.portal.meddefense.local IN TXT "validation-token-xyz"
+**DNS Validation (Recommended for MedDefense):**
+
+Let's Encrypt or commercial CA will ask you to create a DNS TXT record:
+```bash
+# CA provides this command or record details:
+# _acme-challenge.portal.meddefense.local IN TXT "validation-token-abc123xyz"
+
+# Add to your DNS zone (via your registrar or DNS admin):
+dig _acme-challenge.portal.meddefense.local TXT
+# Should return the TXT record you just created
+
+# Once DNS record is verified, CA confirms domain ownership
 ```
 
-The CA queries this record; if present and correct, domain ownership is proven. No human approval required. Validation completes in seconds.
+**HTTP Validation (Alternative, if DNS unavailable):**
 
-**HTTP Validation (Alternative):**
-Certbot places a validation file on the web server at:
-```
-http://portal.meddefense.local/.well-known/acme-challenge/validation-token
+CA will ask you to place a file on your web server:
+```bash
+mkdir -p /var/www/meddefense-portal/.well-known/acme-challenge/
+echo "validation-token-content" > /var/www/meddefense-portal/.well-known/acme-challenge/validation-token
+chmod 644 /var/www/meddefense-portal/.well-known/acme-challenge/validation-token
+
+# CA will request: http://portal.meddefense.local/.well-known/acme-challenge/validation-token
+# and verify it returns the correct token content
 ```
 
-CA HTTP requests this file; if found and correct, domain ownership is proven.
-
-**Requirements:**
-- Port 80 (HTTP) or 443 (HTTPS) must be reachable from the public internet
-- DNS must resolve portal.meddefense.local to the MedDefense web server
-- No IP geolocation restrictions (CA must reach the server)
-
-**Validation Output:**
-```
-IMPORTANT NOTES:
- - Congratulations! Your certificate and chain have been saved at:
-   /etc/letsencrypt/live/portal.meddefense.local/fullchain.pem
-   Your key file has been saved at:
-   /etc/letsencrypt/live/portal.meddefense.local/privkey.pem
-   Your cert will expire on 2024-10-18 (90 days).
-```
+**Validation typically completes in 10-30 minutes once records are in place.**
 
 ### Step 4: Certificate Issuance
 
-Let's Encrypt issues a certificate after successful validation. Certificate includes:
-- **Serial Number:** Unique identifier (e.g., 0x1A2B3C4D5E6F7A8B)
-- **Subject:** CN=portal.meddefense.local (from CSR)
-- **Issuer:** C=US, O=Let's Encrypt, CN=R3 (intermediate CA)
-- **Valid From:** 2024-07-21 00:00:00 UTC
-- **Valid Until:** 2024-10-18 23:59:59 UTC (90 days)
-- **Subject Alternative Names:** portal.meddefense.local, patients.meddefense.local, www-patient-portal.meddefense.local
-- **Public Key:** RSA-2048 (from CSR's private key)
-- **Signature Algorithm:** sha256WithRSAEncryption
-- **Certificate Chain:** Let's Encrypt R3 → ISRG Root X1 (for browser trust)
+After successful validation, the CA issues your certificate:
 
-**Certificate Storage:**
-- **Fullchain:** `/etc/letsencrypt/live/portal.meddefense.local/fullchain.pem` (includes intermediate CA certificate)
-- **Private Key:** `/etc/letsencrypt/live/portal.meddefense.local/privkey.pem`
+**What You Receive:**
+- Server certificate (e.g., `portal_cert.pem`)
+- Intermediate CA certificate (e.g., `intermediate.pem`)
+- Root CA certificate (included for reference; browsers have it)
+- Certificate chain (fullchain.pem = server + intermediate)
+
+**Certificate Details:**
+```
+Subject: CN=portal.meddefense.local
+Issuer: C=US, O=Let's Encrypt (or commercial CA name)
+Valid From: 2026-07-21
+Valid Until: 2026-10-19 (90 days for Let's Encrypt; 1-3 years for commercial)
+Subject Alternative Names: portal.meddefense.local, patients.meddefense.local, www-patient-portal.meddefense.local
+Public Key: RSA-2048 (matches your private key)
+Signature Algorithm: sha256WithRSAEncryption
+```
+
+**Store certificates securely:**
+```bash
+# Install certificates in web server directory (owned by web server user, readable only)
+sudo cp portal_cert.pem /etc/ssl/certs/
+sudo cp intermediate.pem /etc/ssl/certs/
+sudo cp fullchain.pem /etc/ssl/certs/meddefense-portal-chain.pem
+sudo chmod 644 /etc/ssl/certs/meddefense-portal*
+
+# Private key (from Step 1) already secured at /etc/ssl/private/portal_key.pem (mode 0600)
+```
 
 ### Step 5: Installation on Web Server
 
@@ -277,9 +295,9 @@ Edit `/etc/apache2/sites-available/portal.conf`:
     ServerAlias patients.meddefense.local www-patient-portal.meddefense.local
     
     SSLEngine on
-    SSLCertificateFile /etc/letsencrypt/live/portal.meddefense.local/fullchain.pem
-    SSLCertificateKeyFile /etc/letsencrypt/live/portal.meddefense.local/privkey.pem
-    SSLCertificateChainFile /etc/letsencrypt/live/portal.meddefense.local/chain.pem
+    SSLCertificateFile /etc/ssl/certs/portal_cert.pem
+    SSLCertificateKeyFile /etc/ssl/private/portal_key.pem
+    SSLCertificateChainFile /etc/ssl/certs/meddefense-portal-chain.pem
     
     # Security hardening (from 11-tls_audit.md recommendations)
     SSLProtocol -all +TLSv1.2 +TLSv1.3
@@ -292,17 +310,16 @@ Edit `/etc/apache2/sites-available/portal.conf`:
 # HTTP redirect to HTTPS
 <VirtualHost *:80>
     ServerName portal.meddefense.local
-    ServerAlias patients.meddefense.local www-patient-portal.meddefense.local
     Redirect permanent / https://portal.meddefense.local/
 </VirtualHost>
 ```
 
-Enable the site and reload Apache:
+Enable and reload:
 ```bash
-a2enmod ssl
-a2ensite portal
-apache2ctl configtest  # Verify syntax
-systemctl reload apache2
+sudo a2enmod ssl
+sudo a2ensite portal
+sudo apache2ctl configtest  # Verify syntax
+sudo systemctl reload apache2
 ```
 
 **For NGINX:**
@@ -313,8 +330,9 @@ server {
     listen 443 ssl http2;
     server_name portal.meddefense.local patients.meddefense.local www-patient-portal.meddefense.local;
     
-    ssl_certificate /etc/letsencrypt/live/portal.meddefense.local/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/portal.meddefense.local/privkey.pem;
+    ssl_certificate /etc/ssl/certs/portal_cert.pem;
+    ssl_certificate_key /etc/ssl/private/portal_key.pem;
+    ssl_trusted_certificate /etc/ssl/certs/meddefense-portal-chain.pem;
     
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
@@ -332,9 +350,9 @@ server {
 
 Enable and reload:
 ```bash
-ln -s /etc/nginx/sites-available/portal /etc/nginx/sites-enabled/
-nginx -t
-systemctl reload nginx
+sudo ln -s /etc/nginx/sites-available/portal /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
 ### Step 6: Verification That New Certificate is Serving Correctly
@@ -345,7 +363,7 @@ openssl s_client -connect portal.meddefense.local:443 -servername portal.meddefe
 
 # Expected output:
 # subject=CN = portal.meddefense.local
-# issuer=C = US, O = Let's Encrypt, CN = R3
+# issuer=C = US, O = Let's Encrypt (or CA name), CN = R3 (or intermediate)
 # Verify return code: 0 (ok)
 ```
 
@@ -445,6 +463,30 @@ certbot renew            # Perform actual renewal (after dry-run success)
 # Script sends email if expiration < 14 days
 # (backup to Let's Encrypt automated renewal)
 ```
+
+---
+
+## Understanding CSR Submission vs. ACME Automation
+
+**CSR Submission (What This Document Covers):**
+- You generate the CSR (Steps 1-3 completed above)
+- You explicitly submit it to a CA (Step 2)
+- CA validates domain ownership (Step 3)
+- CA issues certificate (Step 4)
+- You install it on your web server (Step 5)
+- **Advantage:** You control every step; transparent process; works with any CA
+
+**ACME Automation (Alternative for Future):**
+- ACME client (Certbot) generates CSR automatically behind the scenes
+- ACME client submits CSR, validates, receives certificate, installs it—all automatic
+- **Advantage:** Fully automated renewal; no manual steps after initial setup
+- **Disadvantage:** Less transparency for security-sensitive teams; CSR details hidden
+
+**For MedDefense Portal Renewal (18-day deadline):**
+Use CSR submission + Let's Encrypt (Step 2 command shows Certbot --csr mode). You already have the CSR; submit it directly. This combines the transparency of CSR submission with the automation of Let's Encrypt validation.
+
+**For Future Renewals (after portal stabilizes):**
+Switch to full ACME automation: `certbot certonly --apache -d portal.meddefense.local` (Certbot handles everything). This is faster for routine renewals.
 
 ---
 
