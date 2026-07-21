@@ -1,549 +1,305 @@
 Goal: Compare the six encryption levels defined and recommend the appropriate level for every MedDefense data store.
 
-Context: "Encrypt the database" sounds simple, but there are at least three ways to do it: encrypt the entire disk the database sits on (full-disk), encrypt the database files (file-level), or encrypt individual fields within the database (record-level). Each has radically different properties: scope of protection, performance impact, key management complexity and what happens when someone with legitimate database access queries the data.
+Context: "Encrypt the database" sounds simple, but there are at least six distinct ways to do it, each with radically different properties: scope of protection, performance impact, key management complexity, and what happens when someone with legitimate database access queries the data.
 
-Choosing the wrong level either leaves data exposed or creates operational problems that the clinical staff will not tolerate.
+Choosing the right level prevents both data exposure and operational failure.
 
 ---
 
-## ENCRYPTION LEVELS COMPARISON
+## THE SIX ENCRYPTION LEVELS: COMPREHENSIVE COMPARISON
 
 | Level | Scope | Performance Impact | Key Management | Use Case |
 |---|---|---|---|---|
-| **Full-Disk** | All data on entire physical/virtual disk (OS, applications, everything) | Minimal (kernel handles transparently) | Single key per disk; key stored in BIOS/TPM or entered at boot | Entire servers with OS, swap, temp files; stolen hard drives cannot be read by attacker; includes non-database files |
-| **Partition** | Single logical partition on disk (e.g., /var, /home, separate partition for data) | Minimal (filesystem transparent) | One key per partition; key stored in partition table or bootloader | Isolating critical partition from rest of disk; separating user data from OS; shares key across all files in partition |
-| **Volume** | Logical volume that may span multiple physical disks (LVM) | Minimal (transparent to applications) | Single key; managed by logical volume manager | RAID arrays, multi-disk storage pools; provides encryption across multiple physical disks while appearing as single filesystem |
-| **File** | Individual files (encrypted at filesystem level) | Low-Medium (filesystem must encrypt/decrypt each file access) | One key per file or shared per user; granular key management | Selective encryption of sensitive files while leaving others unencrypted; different files can have different keys/owners; audit trail per file |
-| **Database** | Entire database or tablespace (encryption at DBMS level) | Medium (database engine encrypts/decrypts pages) | Single key per database; key stored in database-specific key manager or external KMS | PostgreSQL Transparent Data Encryption (TDE), MySQL at-rest encryption; protects database files; SQL queries see decrypted data (access control handled by database ACLs) |
-| **Record** | Individual fields, rows, or records (application-level encryption) | Medium-High (application must encrypt before storing, decrypt after retrieval) | Key per record or per field; extreme granularity; most complex key management | Protecting specific sensitive fields (SSN, credit card, medication name) while leaving non-sensitive fields unencrypted; record-level access control; encrypted data visible in database backups |
+| **1. Full-Disk** | All data on entire physical/virtual disk (OS, applications, databases, swap, temp files, everything) | **Minimal** (<2% overhead via AES-NI) | Single key per disk; key stored in BIOS/TPM or entered at boot | Entire servers where all data must be protected; stolen hard drives are unreadable |
+| **2. Partition** | Single logical partition on disk (e.g., /var, /home, /data, separate encrypted partition) | **Minimal** (<2% overhead, filesystem transparent) | One key per partition; manages key per logical volume | Isolating sensitive partition from OS; separating user data from system files; compliance isolation |
+| **3. Volume** | Logical volume spanning multiple physical disks (LVM, RAID) | **Minimal** (<2% overhead, transparent) | Single key per logical volume; key managed by LVM | Multi-disk storage pools; RAID arrays; encryption spans physical disks while appearing as single filesystem |
+| **4. File** | Individual files (encrypted at filesystem or application level) | **Low-Medium** (5-15% overhead per file access, CPU-bound) | One key per file or per user; granular; most complex | Selective encryption of sensitive files only; different files can use different keys/owners |
+| **5. Database** | Entire database or tablespace (Transparent Data Encryption at DBMS level) | **Medium** (10-20% overhead; DBMS encrypts/decrypts page I/O) | Single key per database or per tablespace; stored in KMS | PostgreSQL TDE, MySQL at-rest encryption; protects files on disk; SQL queries return plaintext |
+| **6. Record** | Individual fields, rows, or records (application-level encryption) | **Medium-High** (15-30% overhead; app must encrypt before write, decrypt after read) | Per-field or per-record keys; extreme granularity; complex key management | Extreme sensitivity: PII fields (SSN, credit card) encrypted while other fields remain plaintext |
 
 ---
 
-## WHEN TO USE EACH LEVEL
+## DETAILED ANALYSIS: EACH LEVEL COMPARED
 
-| Level | When It's the Best Choice | Trade-offs |
-|---|---|---|
-| **Full-Disk** | Physical servers in accessible locations (data centers, branch offices) where theft/unauthorized access to hardware is possible; OS security relies on startup authentication | Protects against disk theft but not logical attacks; slow at startup; if attacker gains OS access, all data visible |
-| **Partition** | Separating sensitive data from OS: place database partition on separate encrypted partition so if OS partition is compromised, database files remain encrypted; compliance requirement to isolate sensitive data from system files; multi-tenant systems where different data volumes need different encryption keys | Administrative overhead: must plan partitions during installation; limited flexibility to change partition sizes post-deployment; single key for entire partition (cannot encrypt individual files within partition differently) |
-| **Volume** | Large-scale RAID/NAS environments where encryption must span multiple physical disks transparently | Single key weakness: compromise of one key exposes entire volume |
-| **File** | Selective protection when only some files are sensitive; systems where different users need different encryption keys; backup data with mixed sensitivity | Still requires volume/disk protection for complete security; doesn't protect unencrypted files |
-| **Database** | DBMS handles complex queries on encrypted data; users need role-based access control through database (not key management); compliance requirement for database-specific encryption | Requires DBMS support; doesn't protect database backups if backups are unencrypted; keys must be protected in database |
-| **Record** | Extreme sensitivity: some fields need encryption even from database administrators; compliance requirement for specific PII fields; mixed sensitivity within single record | Highest performance cost; most complex key management; splits encryption responsibility between application and database |
+### Level 1: Full-Disk Encryption
 
----
+**What It Is:** The entire disk (or virtual disk) is encrypted at the block device level. Anything written to the disk is automatically encrypted; anything read from the disk is automatically decrypted. Includes OS, applications, data, swap, temp files—everything.
 
-## FILE-LEVEL ENCRYPTION IN DETAIL
+**Security Scope:** 
+- ✅ Protects against **disk theft** (stolen drive is completely unreadable without key)
+- ✅ Protects **swap** and **temp files** (often leaked credentials/secrets)
+- ✅ Protects **historical data** (deleted files may still be readable on disk if not overwritten)
+- ❌ **Does NOT protect** against logical attacks after boot (if attacker gains OS access, all data visible)
 
-**What It Is:** Individual files (or groups of files) are encrypted at the filesystem level or application level, independent of other files. Different files can use different keys or owners.
-
-**Key Characteristics:**
-- **Scope:** Granular—only selected sensitive files are encrypted; non-sensitive files remain unencrypted
-- **Performance:** Low-Medium overhead (filesystem must encrypt/decrypt each file access; CPU cost is per-file, not per-disk)
-- **Key Management:** One key per file, per user, or per role; maximum granularity; most complex key management
-- **Use Case Strength:** Selective protection when only some files are sensitive; audit trail per encrypted file; different files can have different owners/permissions
-
-**MedDefense File-Level Scenario:**
-
-Imagine ehr-db-01 backup staging uses file-level encryption for sensitive exports:
-```
-/backup/daily-exports/
-├── 2024-07-21_patients.sql              ← Encrypted (patient demographics)
-├── 2024-07-21_clinical_notes.sql        ← Encrypted (clinical narratives)
-├── 2024-07-21_system_logs.log           ← NOT encrypted (non-sensitive logs)
-└── 2024-07-21_billing_export.csv        ← Encrypted (financial data)
-```
-
-**Benefits:**
-- Different files have different keys: if one key is compromised, only one file is exposed (not entire backup)
-- Audit trail per file: can track which user accessed which encrypted file, at what time
-- Non-sensitive files remain unencrypted (smaller backup size, faster backups)
-- Can encrypt files with different users' keys (e.g., accounting team keys for billing files, clinical team keys for clinical notes)
-
-**Trade-offs:**
-- **Administrative Complexity:** Requires deciding which files are sensitive; manual key management per file or per role
-- **No Protection for Unencrypted Files:** System administrators can still read non-encrypted files; does not protect against unauthorized access
-- **Key Distribution Problem:** If 100 users need access to one encrypted backup file, the encryption key must be shared or re-encrypted 100 ways (complex key management)
-- **Not Transparent to Applications:** Backup/restore tools must handle encrypted files explicitly; not as transparent as partition-level encryption
-
-**Implementation Methods:**
-
-**Option 1: GNU Privacy Guard (GPG) - Application-Level File Encryption**
-```bash
-# Encrypt a single backup file (symmetric encryption)
-gpg --symmetric --cipher-algo AES256 --output 2024-07-21_patients.sql.gpg 2024-07-21_patients.sql
-
-# Or asymmetric: encrypt with specific user's public key
-gpg --recipient "backup-team@meddefense.local" --encrypt 2024-07-21_patients.sql
-
-# Decrypt
-gpg --decrypt 2024-07-21_patients.sql.gpg > 2024-07-21_patients.sql
-
-# Verify integrity + decrypt in one step
-gpg --verify-files 2024-07-21_patients.sql.gpg
-```
-
-**Option 2: eCryptfs - Filesystem-Level File Encryption**
-```bash
-# Mount encrypted directory (one password for all files in directory)
-mount -t ecryptfs /backup/sensitive /backup/sensitive-encrypted
-# Enter encryption passphrase; all files in /backup/sensitive are now encrypted on disk
-
-# Applications write to /backup/sensitive-encrypted normally; eCryptfs encrypts transparently
-cp /backup/sensitive-encrypted/patients.sql /tmp/  # File is decrypted to /tmp
-
-# When done, unmount to encrypt files again
-umount /backup/sensitive-encrypted
-```
-
-**Option 3: FSCRYPT - Modern Linux Filesystem Encryption**
-```bash
-# Enable encryption on ext4/f2fs filesystem
-fscrypt setup
-fscrypt encrypt /backup/sensitive --source=pam_passphrase
-# All files in /backup/sensitive are now encrypted; transparent to applications running as authorized user
-
-# Only users with login passphrase can access files
-ls /backup/sensitive              # Shows encrypted filename hashes
-# (User with passphrase sees decrypted files transparently)
-```
-
-**Option 4: Azure File Encryption / AWS S3 Client-Side Encryption (Cloud)**
-```bash
-# AWS S3 example: encrypt files before upload (client-side)
-aws s3 cp backup.sql s3://meddefense-backups/backup.sql --sse-c --sse-c-key=<key> --sse-c-algorithm=AES256
-
-# Azure example: encrypt with Azure Key Vault
-az keyvault secret set --vault-name meddefense-vault --name backup-2024-07-21 --value "$(cat backup.sql | gzip | openssl enc -aes-256-cbc -e -S <salt> -k <password>)"
-```
-
-**MedDefense Recommendation (File-Level Context):**
-- Use file-level encryption for backup exports left on ehr-db-01 staging area (short-term: hours/days)
-- Use GPG for maximum compatibility (works across platforms, no kernel modules required)
-- Encrypt only sensitive exports (patients.sql, clinical_notes.sql, billing_export.csv); leave system logs unencrypted
-- Different keys for different file types: clinical team has key for clinical notes, accounting team has key for billing
-- Before deletion: overwrite encrypted files with random data 7 times (secure deletion)
-
-**File vs. Partition Trade-Off:**
-| Aspect | File-Level | Partition-Level |
-|---|---|---|
-| **Granularity** | Per-file keys | Single key for all files in partition |
-| **Performance** | Medium (per-file encrypt/decrypt) | Minimal (filesystem transparent) |
-| **Admin Complexity** | High (decide which files, manage key distribution) | Medium (one key per partition) |
-| **Audit Trail** | Per-file (which user accessed which file) | Per-partition (cannot distinguish files) |
-| **Use Case** | Selective protection; backup exports; mixed sensitivity | Database partitions; full OS separation |
-
-**When to Choose File-Level Over Partition:**
-- Backups with mixed sensitivity (some files sensitive, others not)
-- Need per-file audit trails (compliance requirement: track who accessed which export)
-- Different teams need different keys (clinical team ≠ accounting team)
-- Cannot plan partitions ahead of time (partition-level requires OS installation planning)
-
----
-
-## PARTITION-LEVEL ENCRYPTION IN DETAIL
-
-**What It Is:** A logical partition (e.g., /var/lib/postgresql) on a disk is encrypted as a unit, separate from other partitions (e.g., /boot, /home, /).
-
-**Key Characteristics:**
-- **Scope:** All files within the partition are encrypted with a single key
-- **Performance:** Minimal overhead (filesystem layer handles encryption/decryption transparently)
-- **Key Management:** One key per partition; can be different from other partitions
-- **Use Case Strength:** Isolating sensitive data (database, financial records) from OS system files
-
-**MedDefense Partition Scenario:**
-
-Imagine ehr-db-01 is configured with partitions:
-```
-/          (OS + application files)                  ← NOT encrypted
-/var/lib/postgresql  (database files)               ← ENCRYPTED with KEY-A
-/backup    (local backup staging)                   ← ENCRYPTED with KEY-B
-```
-
-**Benefits:**
-- If OS partition is compromised (attacker gains root), database files on /var/lib/postgresql are still encrypted (attacker cannot read database files directly without KEY-A)
-- Different keys for different partitions (if /var/lib/postgresql key is compromised, /backup is still protected by KEY-B)
-- Better than full-disk encryption (if one key is compromised, only one partition is exposed, not entire disk)
-- More flexible than file-level encryption (administrator does not need to decide which individual files to encrypt; entire partition is encrypted at filesystem level)
-
-**Trade-offs:**
-- **Planning Complexity:** Partition scheme must be planned at OS installation time. Resizing partitions requires disk manipulation (more complex than managing file-level encryption)
-- **Administrative Overhead:** Each partition has its own mount point and key; managing multiple keys is more complex than one key for entire disk
-- **Mixed Sensitivity:** Cannot encrypt some files within /var/lib/postgresql differently than others; all files in partition share the same key and encryption
-
-**LUKS (Linux Unified Key Setup) Implementation:**
-```bash
-# During Linux installation, create encrypted partition:
-# /dev/sda1 = /boot (unencrypted)
-# /dev/sda2 = encrypted LUKS container for LVM physical volume
-# LVM creates: /var/lib/postgresql, /backup, /var/log as logical volumes
-
-# Open encrypted partition at boot:
-cryptsetup luksOpen /dev/sda2 meddefense-data
-# This unlocks the LUKS container, allowing LVM volumes to mount
-
-# Alternative: Use LUKS directly on partition (no LVM)
-cryptsetup luksFormat /dev/sda3 --label=postgresql-data
-cryptsetup luksOpen /dev/sda3 pg-encrypted
-mkfs.ext4 /dev/mapper/pg-encrypted
-mount /dev/mapper/pg-encrypted /var/lib/postgresql
-```
-
-**MedDefense Recommendation:** 
-- Use partition-level encryption for ehr-db-01 /var/lib/postgresql to isolate database from OS
-- Use separate LUKS container with separate key for backup partition (/backup or /mnt/backups)
-- Protects against: OS compromise does not expose database files; database compromise does not expose backups
-
----
-
-## MEDDEFENSE ENCRYPTION LEVEL MAP
-
-### 1. Patient Records in PostgreSQL (ehr-db-01)
-
-**Recommended Level:** Partition-level encryption (LUKS) + Database-level encryption (PostgreSQL TDE)
-
-**Justification:**
-MedDefense's ehr-db-01 database server should use partition-level encryption to isolate the database partition (/var/lib/postgresql) from the OS partition (/). This provides defense-in-depth:
-- **Partition-level:** If OS is compromised (attacker gains root), database files are still encrypted with LUKS (attacker cannot read .sql files directly)
-- **Database-level:** If partition is unlocked (key is available at runtime), queries still go through PostgreSQL ACLs (row-level security prevents one patient's data from being visible to another patient's clinician)
-
-**Why Partition + Database?** Partition encryption protects the disk files (physical layer); database encryption protects queries and access control (logical layer). Combined, they provide protection against:
-- Root compromise (cannot read database files directly)
-- Disk theft (files are LUKS-encrypted)
-- Logical attacks (SQL queries are still controlled by database ACLs)
-
-**Implementation:**
-- OS Installation: Create partitions:
-  - /boot (unencrypted, required for boot)
-  - /var/lib/postgresql (encrypted with LUKS, separate key KEY-A)
-  - / (system files, can be encrypted or unencrypted)
-  - /backup (encrypted with LUKS, separate key KEY-B for backup isolation)
-
-- Database: Enable PostgreSQL TDE (13.0+)
-
-**Key Management:** 
-- LUKS Key (KEY-A) for /var/lib/postgresql: Store in external HSM or Vault, brought online at boot time or via automated unlock service
-- PostgreSQL encryption key: Store in external KMS (different from LUKS key; separation of duties)
-
-**Boot Sequence:**
-1. Server boots; /boot is unencrypted (OS can start)
-2. Systemd runs before database: unlock LUKS containers with keys from Vault
-3. Mount /var/lib/postgresql (now available)
-4. PostgreSQL starts and reads its TDE configuration
-5. PostgreSQL engine decrypts database pages as queries arrive
-
----
-
-### 2. Backup Data on NAS-01
-
-**Recommended Level:** Volume-level encryption (encrypted RAID) + Partition-level encryption for on-server staging
-
-**Justification:**
-Backups on NAS-01 use volume-level encryption because:
-- All backups are equally sensitive (no selective encryption needed)
-- Encryption is transparent to backup processes (NAS handles automatically)
-- Volume spans multiple physical disks (RAID arrays); volume-level encryption treats them as single encrypted unit
-
-Secondary layer: If MedDefense does local backup staging on ehr-db-01 before uploading to NAS, use partition-level encryption for the /backup partition (separate LUKS container).
-
-**Critical Design:** Encryption keys must NOT be stored on the NAS or backup server. Use external HSM or Vault:
-- NAS key: In physical vault (USB HSM, offsite)
-- Backup staging key: In Vault, rotated monthly
-
-**Implementation:**
-- NAS: Enable shared folder encryption on backup destination (Synology/QNAP settings)
-- Backup staging (/backup): Separate LUKS partition on ehr-db-01, key in Vault
-
----
-
-### 3. Financial Records in MySQL (billing-srv-01)
-
-**Recommended Level:** Partition-level encryption + Database-level encryption + Record-level encryption (triple layer)
-
-**Justification:**
-Financial data is heavily regulated (PCI-DSS for credit cards, state financial privacy laws, HIPAA for billing). Implement defense-in-depth:
-- **Partition-level:** /var/lib/mysql on separate LUKS container (if OS is compromised, database is encrypted)
-- **Database-level:** MySQL InnoDB TDE (protects database pages at rest)
-- **Record-level:** Encrypt most sensitive columns (SSN, credit card, policy numbers) at application level using AES-256
-
-Benefits:
-- Billing staff can run SQL queries (database-level TDE is transparent)
-- Most sensitive fields are encrypted even if database is accessed directly (record-level encryption)
-- Partition encryption is defense-in-depth against OS compromise
-
-**Implementation:**
-```bash
-# Partition
-cryptsetup luksFormat /dev/sda4 --label=mysql-data
-cryptsetup luksOpen /dev/sda4 mysql-encrypted
-mkfs.ext4 /dev/mapper/mysql-encrypted
-mount /dev/mapper/mysql-encrypted /var/lib/mysql
-
-# Database
-ALTER SYSTEM SET innodb_encrypt_tables=ON;  # MySQL 8.0+
-
-# Record (application-level)
--- Encrypt SSN, credit card columns in application before insert
-SELECT aes_encrypt(ssn, KEY), aes_encrypt(credit_card, KEY) FROM patient_billing;
-```
-
----
-
-### 4. Backup Exports and Data Exports on ehr-db-01 (File-Level)
-
-**Recommended Level:** File-level encryption (GPG/eCryptfs) for backup staging area
-
-**Justification:**
-When MedDefense exports backup or data dump files for testing, audit, or disaster recovery staging, use file-level encryption:
-- Different files (patients.sql, clinical_notes.sql, billing_export.csv) have different sensitivity
-- Files are temporary (hours to days on disk before transfer to NAS or deletion)
-- Different teams may need access to different files (clinical team → clinical_notes.sql, accounting team → billing_export.csv)
-- Per-file audit trail: can log which user accessed/downloaded which encrypted export
-
-**Example Scenario:**
-```
-/backup/exports/
-├── 2024-07-21_patients.sql.gpg          (Encrypted, accessible only to clinical staff)
-├── 2024-07-21_clinical_notes.sql.gpg    (Encrypted, accessible only to physicians)
-├── 2024-07-21_billing_export.csv.gpg    (Encrypted, accessible only to accounting team)
-└── 2024-07-21_schema_backup.sql         (NOT encrypted—schema only, no PHI)
-```
-
-**Implementation (GPG):**
-```bash
-# Create encryption keys for different teams
-gpg --full-generate-key  # Creates clinical-team@meddefense.local key
-gpg --full-generate-key  # Creates accounting-team@meddefense.local key
-
-# Export function runs daily backup and encrypts per-team
-backup_and_encrypt() {
-  mysqldump --all-databases > /tmp/full_backup.sql
-  gpg --recipient clinical-team@meddefense.local --encrypt /tmp/full_backup.sql --output /backup/exports/clinical_$(date +%Y-%m-%d).sql.gpg
-  gpg --recipient accounting-team@meddefense.local --encrypt /tmp/billing.sql --output /backup/exports/billing_$(date +%Y-%m-%d).csv.gpg
-}
-
-# Clinical staff decrypts when needed (passphrase required)
-gpg --decrypt /backup/exports/clinical_2024-07-21.sql.gpg > clinical_export.sql
-
-# Verify file integrity before decryption
-gpg --verify-files /backup/exports/clinical_2024-07-21.sql.gpg
-```
-
-**Benefits (File-Level):**
-- Granular access: accounting team cannot decrypt clinical files (different keys)
-- Audit trail: can log which user decrypted which file and when
-- Mixed sensitivity: schema-only backups remain unencrypted (faster export)
-- Temporary protection: files encrypted during staging, can be deleted securely
+**Performance:**
+- Overhead: ~1-3% (modern CPUs with AES-NI hardware acceleration)
+- Transparent to applications (kernel handles encryption)
+- Startup: Requires key entry or TPM unlock (adds 10-30 seconds to boot)
 
 **Key Management:**
-- Each team's public key stored in GPG keyserver (public)
-- Private keys stored in password-protected GPG keyring on backup servers or Vault
-- Passphrase rotated quarterly
+- Single key per disk
+- Key must be protected: BIOS password, TPM (Trusted Platform Module), or manual entry
+- If TPM compromised or BIOS password weak, disk is unprotected
+- Key recovery: If key is lost, disk is permanently inaccessible
 
-**Trade-off Against Partition-Level:**
-- Partition-level (/backup on LUKS) is better for long-term backup storage (faster, transparent)
-- File-level is better for temporary exports needing per-team access control and audit trails
-- Recommendation: Use both: file-level for export staging (/backup/exports with GPG), partition-level for archive (/backup partition encrypted with LUKS)
+**When to Use:**
+- Physical servers in data centers (theft risk)
+- Laptops or branch office servers
+- Environments where entire server shutdown is acceptable during boot
+
+**When NOT to Use:**
+- Servers that cannot tolerate boot delays
+- Environments where TPM is not available
+- Cloud VMs where host provider has direct disk access (encryption may be pointless)
 
 ---
 
-### 5. Configuration Files and Audit Logs (File-Level Primary)
+### Level 2: Partition Encryption
 
-**Recommended Level:** File-level encryption (FSCRYPT) for sensitive configuration + Full-disk for audit logs
+**What It Is:** A single logical partition is encrypted, while other partitions (OS, boot) remain unencrypted. Useful for encrypting `/var`, `/home`, `/data`, or other sensitive partitions.
 
-**Justification:**
-MedDefense configuration files contain database credentials, API keys, encryption keys, and other secrets. Audit logs contain sensitive patient access records and clinical events. These have different sensitivity levels and retention policies:
-- **Configuration files:** Must be encrypted and access-controlled (developers should not read other teams' API keys)
-- **Audit logs:** Highly sensitive (compliance requirement), but need to be readable by SIEM without decryption per entry
-- **Use file-level for configuration:** Each file (db.conf, api.conf, ldap.conf) has different access level (database team, API team, auth team)
-- **Use full-disk for audit logs:** Fast, transparent logging; encryption protects stolen disks
+**Security Scope:**
+- ✅ Protects **sensitive data partition** even if OS partition compromised
+- ✅ Allows **OS to remain unencrypted** (faster boot)
+- ❌ Does NOT protect OS files, kernel, or boot integrity
+- ❌ If attacker gains OS access, can access unencrypted OS and mount encrypted partition (with key from memory)
 
-**Example Scenario (File-Level for Configuration):**
-```
-/etc/meddefense/
-├── db.conf.encrypted        (Readable only by database team)
-├── api.conf.encrypted       (Readable only by API team)  
-├── ldap.conf.encrypted      (Readable only by auth team)
-├── dicom.conf.encrypted     (Readable only by PACS team)
-└── encryption.conf.encrypted (Readable only by security team)
-```
-
-**Implementation (FSCRYPT - Modern Linux):**
-```bash
-# Enable encryption on ext4 filesystem for /etc/meddefense
-fscrypt setup
-fscrypt encrypt /etc/meddefense --source=pam_passphrase
-
-# Each configuration file is now encrypted with user's login passphrase
-# Only authorized users can read them:
-cat /etc/meddefense/db.conf  # Decrypted automatically if user has permission + passphrase
-grep "password" /etc/meddefense/db.conf  # File-level encryption is transparent
-
-# Administrator can set per-file permissions:
-setfattr -n fscrypt.context /etc/meddefense/db.conf  # Encrypt with specific user's key
-```
-
-**Benefits (File-Level):**
-- **Granular Access Control:** Each configuration file is encrypted with a different user's key; API team cannot read database credentials
-- **Compliance Audit Trail:** FSCRYPT logs who accessed which encrypted file and when (separate from logs themselves)
-- **No Performance Cost:** FSCRYPT is filesystem-level; encryption is transparent to applications
-- **Selective Protection:** Non-sensitive files (service descriptions, comments) remain unencrypted for fast reading
-- **Secrets Isolation:** If one team's key is compromised, only their configuration files are exposed (not all configuration)
-
-**Trade-off Against Partition-Level:**
-- Partition-level (/etc on LUKS) would encrypt all files equally and be simpler to manage
-- File-level is better when different files have different access needs (developers ≠ DBA ≠ security team)
-- MedDefense has multiple teams needing selective access, making file-level optimal
+**Performance:**
+- Overhead: ~1-3% (filesystem-level, transparent)
+- No boot delay (OS partition unencrypted)
+- Mounted only when needed (smaller memory footprint than full-disk)
 
 **Key Management:**
-- FSCRYPT uses pam_passphrase (user's login password) to derive file encryption key
-- Can also use external key manager (Vault) with fscrypt unlock service
-- Per-file key rotation: re-encrypt file with new user's key when person leaves team
+- One key per partition (more granular than full-disk)
+- Key can be stored in keyring or entered at mount time
+- Multiple partitions can have different keys
+- Supports key rotation per partition
+
+**When to Use:**
+- Compliance requirement: separate sensitive data from OS (data/system isolation)
+- Multi-tenant: different partitions with different keys
+- High-security installations: OS unencrypted (trusted), `/var` encrypted (sensitive)
+
+**When NOT to Use:**
+- Simplicity priority (full-disk simpler to deploy)
+- All data equally sensitive (no need for partition-level granularity)
 
 ---
 
-### 6. Medical Images on PACS (pacs-srv-01)
+### Level 3: Volume Encryption (LVM / RAID)
 
-**Recommended Level:** File-level encryption (eCryptfs) for on-server DICOM staging + Volume-level encryption for NAS archival
+**What It Is:** A logical volume (which may span multiple physical disks via LVM or RAID) is encrypted as a unit. Applications see a single decrypted filesystem, but underlying storage spans multiple disks.
 
-**Justification:**
-Medical images are stored in PACS with two lifecycle phases:
-1. **On-server staging** (/data/dicom-staging): Recent images used by radiologists, must be accessible with low latency
-2. **NAS archive** (/archive/dicom-old): Historical images accessed rarely, can be encrypted at volume level
+**Security Scope:**
+- ✅ Protects **all disks in volume** (if one disk stolen, cannot read data)
+- ✅ Protects **RAID parity** (cannot reconstruct data from stolen disks)
+- ✅ Provides **transparent encryption across multiple physical devices**
+- ❌ Single key for entire volume (key compromise = entire volume exposed)
 
-For staging, file-level encryption is appropriate:
-- **Different studies have different sensitivity:** Urgent cancer workups vs. routine follow-ups
-- **Granular access:** Different radiologists access different studies (file-level allows per-study keys)
-- **Performance:** eCryptfs provides per-file encryption transparency; radiologists don't notice decryption
-- **Audit trail:** Can log which radiologist accessed which study when (HIPAA requirement)
-
-For archive, volume-level encryption is appropriate:
-- **All images equally sensitive** (historical, no longer in active use)
-- **Performance not critical** (rare access)
-- **Single key simpler** to manage for long-term retention
-
-**Example Scenario (File-Level for Staging):**
-```
-/data/dicom-staging/
-├── 2024-07-21_patient001_MRI_brain.dcm.encrypted    (Encrypted, oncology team access)
-├── 2024-07-21_patient002_CT_chest.dcm.encrypted     (Encrypted, pulmonology team access)
-├── 2024-07-21_patient003_XRay_chest.dcm.encrypted   (Encrypted, emergency team access)
-└── 2024-07-21_index.xml                             (NOT encrypted—metadata only)
-```
-
-**Implementation (eCryptfs for Staging):**
-```bash
-# Mount encrypted staging directory (per-radiologist encryption)
-mount -t ecryptfs /data/dicom-staging /data/dicom-staging-encrypted
-
-# DICOM software writes to /data/dicom-staging-encrypted normally
-# eCryptfs encrypts transparently with per-radiologist passphrase
-
-# When radiologist logs in, eCryptfs mounts with their key
-# They see decrypted studies in PACS automatically
-```
-
-**Implementation (Volume-Level for Archive):**
-```bash
-# NAS: Enable shared folder encryption on archival destination
-# All DICOM files written to /archive/dicom are encrypted with volume key
-# Old images are moved from staging to archive monthly (encrypted transparently)
-```
-
-**Benefits (File + Volume):**
-- **Staging protection:** Per-radiologist file-level access, HIPAA audit trail
-- **Archive protection:** Volume-level simplicity for historical images
-- **Performance:** eCryptfs staging is transparent; no latency impact on active workups
-- **Compliance:** Two-layer protection meets HIPAA PHI encryption requirement
+**Performance:**
+- Overhead: ~1-3% (managed by LVM, transparent)
+- Scaling: No degradation across multiple disks (encryption is disk-level)
+- Hot-swap: Can replace failed disks without re-encrypting entire volume
 
 **Key Management:**
-- Staging: Per-radiologist FSCRYPT key derived from login passphrase
-- Archive: Volume key stored in external Vault, rotated annually
+- Single key per logical volume
+- Ideal for managed key systems (KMS for volume keys)
+- Supports key rotation (re-encrypt volume to new key)
+
+**When to Use:**
+- NAS/SAN with multiple disks (e.g., 10-disk RAID-6 array)
+- Storage pools that expand/contract dynamically
+- Environments where physical disk theft is realistic
+
+**When NOT to Use:**
+- Single-disk systems (use full-disk instead)
+- Requirement for per-disk keys (use partition-level)
 
 ---
 
-### 7. Email Data in O365
+### Level 4: File Encryption
 
-**Recommended Level:** Microsoft-managed encryption (equivalent to database-level)
+**What It Is:** Individual files are encrypted at the filesystem level (eCryptfs, FSCRYPT) or application level (GPG). Different files can have different keys or owners.
 
-**Justification:**
-O365 handles encryption transparently: BitLocker on datacenter disks, per-mailbox encryption with Microsoft-managed keys, TLS for transmission. MedDefense cannot and should not try to implement additional encryption (O365 is managed service; MedDefense does not own the storage hardware).
+**Security Scope:**
+- ✅ Protects **only selected files** (others remain plaintext)
+- ✅ Different files can have **different keys** (granular access control)
+- ✅ **Audit trail per file** (which user accessed which encrypted file)
+- ❌ Does NOT protect unencrypted files
+- ❌ Does NOT protect at-rest backups of encrypted files (backup may include key in metadata)
 
-However: Record-level encryption (S/MIME) should be used for individual sensitive emails (patient information, billing data, clinical notes) to encrypt the message body even within O365's system.
+**Performance:**
+- Overhead: 5-15% per file access (CPU-bound encryption/decryption)
+- Not transparent (applications may need to handle encrypted files explicitly)
+- Backup performance: larger backup size if files encrypted (cannot compress encrypted data)
 
-**Implementation:**
-- S/MIME: Enable for all MedDefense staff; encrypt emails containing PHI
-- OME (Office Message Encryption): Configure for external recipients (those outside organization)
+**Key Management:**
+- One key per file or per user
+- Maximum granularity; most complex to manage
+- Key distribution complex (if 100 users need access to one encrypted file, key must be shared 100 ways)
+- Ideal for role-based file sharing (one key per role)
 
----
+**When to Use:**
+- Selective protection (only sensitive files encrypted; others plaintext)
+- Compliance requirement for specific PII files (e.g., medical notes stored encrypted)
+- Backup exports with mixed sensitivity (patient list + financial data; encrypt only financial)
+- Multi-user environments where different users need different encryption keys
 
-### 8. Employee Laptops
-
-**Recommended Level:** Full-disk encryption (BitLocker on Windows, FileVault on Mac)
-
-**Justification:**
-Laptops are portable, frequently travel, and are high-theft targets. Full-disk encryption ensures if a laptop is stolen, all data (OS, applications, cached patient data, local files) cannot be accessed. Full-disk encryption is appropriate because:
-- Encryption is transparent to employees (no performance impact noticed)
-- Protects all data indiscriminately (no need to decide which files to encrypt)
-- Enforced by OS at boot (attacker cannot bypass by booting alternate OS or removing disk to another machine)
-
-**Implementation:**
-- Windows: BitLocker with TPM 2.0 (or PIN+password)
-- macOS: FileVault with Recovery Key in secure location
-- Mobile: Full-disk encryption mandatory for all phones/tablets
-
-**Key Management:** Recovery keys must be stored in secure location (corporate password manager like Dashlane, NOT in local files on laptop)
-
----
-
-### 9. BD Alaris Pump Firmware/Configuration
-
-**Recommended Level:** Record-level encryption + Firmware signing (at application level)
-
-**Justification:**
-BD Alaris pumps are constrained devices with limited processing power. Full-disk or database-level encryption is impractical. Instead:
-- Firmware should be cryptographically signed (not encrypted; signing allows verification without performance cost)
-- Configuration data (drug library, dosing parameters, calibration) should use application-level encryption if stored locally on pump
-- Network communication should use DICOM TLS or HTTPS
-
-**Important:** Do NOT encrypt firmware on the pump itself (decryption happens at power-on, consuming battery/processing power). Instead, transport firmware in encrypted channels (HTTPS from pump server) and verify signature on-device (lightweight operation).
-
-**Implementation:**
-- Firmware: RSA-2048 signature verification on pump at boot (verify firmware integrity)
-- Configuration: AES-256 encryption for sensitive parameters (drug concentration, maximum rate limits) in configuration files
-- Network: DICOM TLS or HTTPS for all pump-to-server communication
+**When NOT to Use:**
+- Everything is sensitive (use database or volume encryption)
+- Performance-critical workloads (5-15% overhead too high)
+- Need for transparent encryption (applications may struggle with encrypted files)
 
 ---
 
-## SUMMARY: MEDDEFENSE ENCRYPTION LEVEL MATRIX
+### Level 5: Database Encryption (Transparent Data Encryption / TDE)
 
-| Data Store | Location | Recommended Level | Primary Key | Secondary Layer | Notes |
-|---|---|---|---|---|---|
-| **Patient Records** | PostgreSQL ehr-db-01 | Database (TDE) | External KMS | Full-disk backup | Clinicians see decrypted data; queries work normally |
-| **Backups** | NAS-01 | Volume (encrypted RAID) | External vault | N/A | Key NOT on NAS (ransomware scenario) |
-| **Financial Data** | MySQL billing-srv-01 | Database + Record (hybrid) | External KMS | Full-disk backup | Most sensitive fields (SSN, CC) encrypted at application level |
-| **Backup Exports** | ehr-db-01 staging | File-level (GPG) | Team-specific GPG keys | Partition-level for archive | Per-file access control; audit trail per export |
-| **Configuration Files** | /etc/meddefense | File-level (FSCRYPT) | Per-user keys (derived from login) | Partition-level for OS | Different teams access different configs (database ≠ API ≠ auth) |
-| **Medical Images Staging** | PACS pacs-srv-01 staging | File-level (eCryptfs) | Per-radiologist keys | Volume for archive | Per-radiologist access; HIPAA audit trail per study |
-| **Medical Images Archive** | NAS archival | Volume (encrypted RAID) | External vault | N/A | Historical images, volume-level simpler for retention |
-| **Email** | O365 Cloud | Microsoft-managed + S/MIME | Microsoft (O365) | S/MIME for sensitive emails | MedDefense adds S/MIME for extra protection |
-| **Laptops** | Portable devices | Full-disk (BitLocker/FileVault) | TPM 2.0 or PIN | Recovery key in vault | Transparent to users; high-theft protection |
-| **Medical Device Firmware** | BD Alaris Pump | Firmware signing + Config encryption | RSA-2048 signature | DICOM TLS network | Lightweight for constrained devices; network-based protection primary |
+**What It Is:** Database management system (DBMS) encrypts data at the tablespace or database level. SQL queries return plaintext (users don't see encryption); on-disk storage is encrypted. Access control is via DBMS role-based access control (RBAC), not key management.
 
-**File-Level Encryption is Recommended as Primary for 3 MedDefense Use Cases:**
-1. **Backup Exports:** Selective encryption based on team access (clinical vs. accounting)
-2. **Configuration Files:** Per-team encryption (database credentials from API credentials)
-3. **Medical Images Staging:** Per-radiologist encryption with audit trail (HIPAA requirement)
+**Security Scope:**
+- ✅ Protects **data on disk** (stolen database files are unreadable)
+- ✅ **SQL queries return plaintext** (application doesn't need to decrypt)
+- ✅ **Access control via DBMS ACLs** (row-level security, column masks)
+- ✅ Protects **database backups on disk** (backups encrypted if backed up while encrypted)
+- ❌ Does NOT protect data in transit (requires separate TLS/IPSec)
+- ❌ Does NOT protect data in memory while query runs (decrypted in RAM)
 
-**Key Principle:** Layered encryption—no single level is perfect. File-level provides granular access control when different users/teams need different keys. Use:
-- **Full-disk:** Portable devices (high-theft environments, OS protection required)
-- **Partition:** Isolating sensitive data partitions from OS
-- **Volume:** Large storage pools requiring transparent encryption
-- **File-level:** Mixed sensitivity, team-based access control, audit trails per file
-- **Database:** Application-level queries need decrypted data with DBMS ACLs
-- **Record:** Extreme sensitivity requiring per-field protection even from DBAs
+**Performance:**
+- Overhead: 10-20% (DBMS encrypts/decrypts pages; CPU cost is per-query)
+- Scaling: Some overhead increases with number of concurrent queries
+- Query planning: Minimal impact on query optimization (encryption transparent to query engine)
 
-Dépôt:
+**Key Management:**
+- Single key per database or per tablespace
+- Keys typically stored in external KMS (Vault, AWS KMS, Azure Key Vault)
+- Key rotation: Can rotate key without re-encrypting entire database (new pages use new key, old pages re-encrypted on access or background task)
+- Automatic: KMS integration handles key rotation centrally
 
-Dépôt GitHub: holbertonschool-cyber_security
-Répertoire: blue_team/1x04_crypto_foundation
-Fichier: 13-encryption_levels.md
+**When to Use:**
+- Production databases with patient/financial data
+- Regulatory compliance (HIPAA, PCI-DSS often require database-level encryption)
+- Shared hosting (database backups encrypted at rest)
+- Protection against DBA compromise (data on disk unreadable even if DBA gains admin access)
+
+**When NOT to Use:**
+- Testing/development (overhead not necessary)
+- Non-sensitive data (cost not justified)
+- DBMS doesn't support TDE (e.g., SQLite)
+
+---
+
+### Level 6: Record/Field Encryption
+
+**What It Is:** Application-level encryption where sensitive fields (SSN, credit card, medication name) are encrypted before being written to the database. Encryption is managed by the application, not the DBMS. Other fields remain plaintext.
+
+**Security Scope:**
+- ✅ **Extreme granularity**: specific fields encrypted; others plaintext
+- ✅ **Protects from DBA access**: even DBAs with full database access cannot read encrypted fields
+- ✅ **Protects data visibility in backups**: encrypted fields remain encrypted in backups
+- ✅ **Application-controlled access**: application determines who can decrypt which fields
+- ❌ **High operational complexity**: application must handle encryption/decryption logic
+- ❌ **Cannot query encrypted fields**: SQL `WHERE` clause cannot search on encrypted values (must retrieve all rows, decrypt, then filter)
+
+**Performance:**
+- Overhead: 15-30% (application must encrypt before write, decrypt after read, plus key management overhead)
+- Query impact: Severe (cannot index encrypted fields; full table scan required for queries on encrypted columns)
+- Backup impact: Encrypted fields remain encrypted (backup size not reduced by compression)
+
+**Key Management:**
+- Per-field or per-record keys (extreme granularity)
+- Keys managed by application (not DBMS)
+- Key distribution complex (application must securely retrieve key for each record access)
+- Most complex key management of all six levels
+
+**When to Use:**
+- Extreme sensitivity: data that must remain encrypted even from DBAs or cloud providers
+- Compliance requirement: field-level encryption mandated (e.g., PCI-DSS for credit card numbers)
+- Multi-tenant: different tenants' data encrypted with different keys
+- Selective protection: only PII fields encrypted; operational fields (timestamps, status) plaintext
+
+**When NOT to Use:**
+- Performance-critical workloads (30% overhead too high; queries become full table scans)
+- Need to search encrypted fields (cannot index)
+- Simplicity priority (most complex to implement and maintain)
+
+---
+
+## SUMMARY: CHOOSING THE RIGHT LEVEL FOR MEDDEFENSE
+
+### Decision Matrix
+
+| Data Store | Primary Threat | Recommended Level | Reasoning |
+|---|---|---|---|
+| Patient database (ehr-db-01) | Data theft, DBA compromise, backup theft | Database (Level 5) + Record (Level 6 for SSN/payment) | Database for bulk protection; record-level for PII fields that DBAs shouldn't see |
+| Backup storage (NAS-01) | Physical theft, network access, unauthorized restore | Volume (Level 3) | Entire backup volume encrypted; single key in separate Vault server; prevents plaintext restore |
+| Active Directory (AD servers) | Domain controller compromise | Full-Disk (Level 1) or Partition (Level 2 for sensitive partition) | OS and sensitive data on same server; full-disk simplest; partition if need to isolate DC from other services |
+| Configuration files (secrets, API keys) | Developer access, accidental commit to git, backup theft | File (Level 4) | Selective protection; encrypt only secrets; GPG per-file encryption; audit trail |
+| Clinical notes (DICOM/medical images, staging) | Radiologist access, staging directory theft | File (Level 4) | Per-radiologist file-level keys; different radiologists see only their encrypted studies; audit per study |
+| Web server SSL certificates | Web server compromise, certificate theft | File (Level 4) or Record (Level 6 if embedded in app config) | Private key only accessible to web server process; encrypted at file level; key rotation via configuration management |
+
+---
+
+## KEY PRINCIPLES FOR MEDDEFENSE
+
+1. **No single level is correct for all data:** Healthcare systems must layer encryption:
+   - Volume-level for backup storage (broad protection)
+   - Database-level for live databases (performance acceptable for OLTP)
+   - Record-level for extreme PII (SSN, payment methods)
+   - File-level for selective protection (staging data, configuration)
+
+2. **Layering is intentional:** Encryption at multiple levels provides defense-in-depth:
+   - If volume key compromised: individual databases still encrypted (level 5)
+   - If database key compromised: SSN fields still encrypted (level 6)
+   - If attacker gains physical disk: entire volume still encrypted (level 3)
+
+3. **Key management scales with encryption levels:**
+   - Full-disk/partition: 1 key → simple, need TPM or boot password
+   - Volume: 1-10 keys → manage in KMS
+   - Database: 1-20 keys → manage in KMS per database
+   - File: 100-1000 keys → manage per user or per role
+   - Record: 1000+ keys → application must manage per-field or per-tenant
+
+4. **Performance vs. Security Tradeoff:**
+   - Full-disk/partition/volume: <3% overhead, no query impact
+   - Database: 10-20% overhead, transparent to queries
+   - File: 5-15% overhead, no query impact (files are not queried)
+   - Record: 15-30% overhead, severe query impact (cannot search encrypted fields)
+
+---
+
+## IMPLEMENTATION FOR MEDDEFENSE
+
+### Phase 1: Volume Encryption (NAS-01 Backups)
+- Encrypt entire backup volume with LUKS (Level 3)
+- Key stored in Vault (separate server)
+- Backup restore: retrieve key from Vault → open volume → restore files
+
+### Phase 2: Database Encryption (ehr-db-01)
+- Enable TDE in PostgreSQL/MySQL (Level 5)
+- Store encryption key in AWS KMS or Vault
+- Enable automated key rotation (new pages use new key)
+
+### Phase 3: Record-Level for PII (ehr-db-01 specific fields)
+- Application-level encryption for SSN, payment methods, medical record numbers
+- Key stored in Vault with per-user access control
+- Queries on encrypted fields require application-side filtering
+
+### Phase 4: File Encryption (Configuration, Staging)
+- GPG encryption for sensitive configuration files (API keys, secrets)
+- Per-radiologist file-level encryption for DICOM staging
+- Audit trail via encrypted file metadata
+
+---
+
+## Conclusion
+
+The six encryption levels serve complementary purposes in MedDefense's defense-in-depth strategy:
+
+1. **Full-Disk/Partition** = protection against physical theft
+2. **Volume** = large-scale protection across storage pools
+3. **Database** = balance of performance and protection for live data
+4. **File** = selective protection for sensitive individual assets
+5. **Record** = extreme protection for specific PII fields that must remain encrypted from DBAs
+
+No single level is sufficient. Layering all six across different data stores provides comprehensive encryption coverage while maintaining acceptable performance and operational complexity.
+
