@@ -492,4 +492,4 @@ Options:
 3. Install certificate on Apache/NGINX (18 days until expiration deadline)
 4. Enable automated renewal to prevent future lapses
 
-# Submission to CA
+# ["Submission to CA", "Validation process", "Certificate issuance", "Installation on the web server","Verification", "Decommission", "Monitoring"])
