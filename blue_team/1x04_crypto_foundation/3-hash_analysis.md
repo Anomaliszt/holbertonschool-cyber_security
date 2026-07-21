@@ -172,3 +172,5 @@ The `3-hash_verify.sh` script verifies file integrity by comparing a file's comp
 | **Storage requirement** | Store hash; never store plaintext | Store encrypted data + protect key separately |
 
 For MedDefense: **Use strong hashing (bcrypt/Argon2) for passwords, use encryption (AES-256) for data at rest, and verify integrity (SHA-256) for backups and patches.**
+
+# got
