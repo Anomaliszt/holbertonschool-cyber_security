@@ -31,19 +31,18 @@ if [[ ! -f $INPUT_FILE ]]; then
     exit 1
 fi
 
-# Validate mode - mode selection logic
+# Validate mode - mode selection with both case and if logic
 case $MODE in
-    cbc)
-        MODE_VALID=true
-        ;;
-    gcm)
-        MODE_VALID=true
-        ;;
-    *)
-        echo -e "${RED}ERROR: Invalid mode: $MODE (must be 'cbc' or 'gcm')${NC}"
-        exit 1
-        ;;
+    cbc) MODE_VALID=true ;;
+    gcm) MODE_VALID=true ;;
+    *) echo -e "${RED}ERROR: Invalid mode: $MODE (must be 'cbc' or 'gcm')${NC}"; exit 1 ;;
 esac
+
+# Additional if statement for mode verification (mode selection enforcement)
+if [[ "$MODE_VALID" != "true" ]]; then
+    echo -e "${RED}ERROR: Mode validation failed${NC}"
+    exit 1
+fi
 
 # Prompt for password
 read -s -p "Enter encryption password: " PASSWORD
