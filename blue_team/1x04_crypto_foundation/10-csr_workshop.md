@@ -491,3 +491,5 @@ Options:
 2. Submit CSR to Let's Encrypt via Certbot ACME
 3. Install certificate on Apache/NGINX (18 days until expiration deadline)
 4. Enable automated renewal to prevent future lapses
+
+# Submission to CA
