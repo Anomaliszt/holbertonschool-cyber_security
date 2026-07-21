@@ -24,6 +24,19 @@ fi
 MODE=$1
 FILE=$2
 
+# Mode selection with case statement (sign or verify)
+case $MODE in
+    sign) MODE_VALID=true ;;
+    verify) MODE_VALID=true ;;
+    *) echo -e "${RED}ERROR: Invalid mode: $MODE (must be 'sign' or 'verify')${NC}"; exit 1 ;;
+esac
+
+# Validate mode was recognized
+if [[ "$MODE_VALID" != "true" ]]; then
+    echo -e "${RED}ERROR: Mode validation failed${NC}"
+    exit 1
+fi
+
 # Sign mode
 if [[ $MODE == "sign" ]]; then
     PRIVATE_KEY=${3:-"private.pem"}
