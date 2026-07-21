@@ -14,13 +14,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Check for root/sudo
-if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}ERROR: This script must be run as root or with sudo${NC}"
-    exit 1
-fi
-
-# Validate arguments
+# Validate arguments (check sudo access for LUKS commands if needed)
 if [[ $# -lt 2 ]]; then
     echo -e "${RED}ERROR: Minimum 2 arguments required${NC}"
     echo "Usage: $0 <mode> <volume_name> [size_mb]"
@@ -64,23 +58,23 @@ if [[ $MODE == "create" ]]; then
     # Format with LUKS
     echo ""
     echo -e "${YELLOW}Step 2: Formatting with LUKS encryption...${NC}"
-    cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --key-size 512 "$IMAGE_FILE"
+    sudo cryptsetup luksFormat --type luks2 --cipher aes-xts-plain64 --key-size 512 "$IMAGE_FILE"
     
     # Open volume
     echo ""
     echo -e "${YELLOW}Step 3: Opening encrypted volume...${NC}"
-    cryptsetup luksOpen "$IMAGE_FILE" "$VOLUME_NAME"
+    sudo cryptsetup luksOpen "$IMAGE_FILE" "$VOLUME_NAME"
     
     # Create filesystem
     echo ""
     echo -e "${YELLOW}Step 4: Creating ext4 filesystem...${NC}"
-    mkfs.ext4 "/dev/mapper/$VOLUME_NAME"
+    sudo mkfs.ext4 "/dev/mapper/$VOLUME_NAME"
     
     # Create mount point and mount
     echo ""
     echo -e "${YELLOW}Step 5: Mounting volume...${NC}"
     mkdir -p "$MOUNT_POINT"
-    mount "/dev/mapper/$VOLUME_NAME" "$MOUNT_POINT"
+    sudo mount "/dev/mapper/$VOLUME_NAME" "$MOUNT_POINT"
     
     # Verify
     echo ""
@@ -107,7 +101,7 @@ elif [[ $MODE == "open" ]]; then
         echo -e "${YELLOW}Volume already open${NC}"
     else
         echo -e "${YELLOW}Opening encrypted volume...${NC}"
-        cryptsetup luksOpen "$IMAGE_FILE" "$VOLUME_NAME"
+        sudo cryptsetup luksOpen "$IMAGE_FILE" "$VOLUME_NAME"
     fi
     
     # Create mount point if needed
@@ -118,7 +112,7 @@ elif [[ $MODE == "open" ]]; then
         echo -e "${YELLOW}Volume already mounted at $MOUNT_POINT${NC}"
     else
         echo -e "${YELLOW}Mounting volume...${NC}"
-        mount "/dev/mapper/$VOLUME_NAME" "$MOUNT_POINT"
+        sudo mount "/dev/mapper/$VOLUME_NAME" "$MOUNT_POINT"
     fi
     
     echo ""
@@ -136,7 +130,7 @@ elif [[ $MODE == "close" ]]; then
     # Check if mounted and unmount
     if mountpoint -q "$MOUNT_POINT"; then
         echo -e "${YELLOW}Unmounting $MOUNT_POINT...${NC}"
-        umount "$MOUNT_POINT"
+        sudo umount "$MOUNT_POINT"
     else
         echo -e "${YELLOW}Volume not mounted${NC}"
     fi
@@ -144,7 +138,7 @@ elif [[ $MODE == "close" ]]; then
     # Check if open and close
     if dmsetup info "/dev/mapper/$VOLUME_NAME" > /dev/null 2>&1; then
         echo -e "${YELLOW}Closing encrypted volume...${NC}"
-        cryptsetup luksClose "$VOLUME_NAME"
+        sudo cryptsetup luksClose "$VOLUME_NAME"
     else
         echo -e "${YELLOW}Volume not open${NC}"
     fi
