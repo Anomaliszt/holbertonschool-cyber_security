@@ -54,7 +54,7 @@ if [[ $MODE == "sign" ]]; then
     SIG_FILE="${FILE}.sig"
     
     echo -e "${YELLOW}Signing file with private key...${NC}"
-    openssl dgst -sha256 -sign "$PRIVATE_KEY" "$FILE" > "$SIG_FILE"
+    openssl dgst -sha256 -sign "$PRIVATE_KEY" -out "$SIG_FILE" "$FILE"
     
     if [[ -f $SIG_FILE ]]; then
         echo -e "${GREEN}✓ Signature created${NC}"
